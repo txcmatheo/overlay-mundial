@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: overlay-mundial-bridge
+    runtime: python
+    buildCommand: echo "no build needed"
+    startCommand: python bridge.py
+    envVars:
+      - key: PORT
+        generateValue: false   # Render lo inyecta automáticamente
