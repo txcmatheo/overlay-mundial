@@ -76,6 +76,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_matches()
         elif re.match(r"^/stats/[A-Za-z0-9_-]+$", path):
             self._handle_stats(path.split("/")[-1])
+        elif re.match(r"^/detail/[A-Za-z0-9_-]+$", path):
+            self._handle_detail(path.split("/")[-1])
         elif path in ("/", "/health"):
             self._send_json({"status": "ok"})
         else:
@@ -93,6 +95,20 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         except Exception as e:
+            self._error(str(e))
+
+    def _handle_detail(self, match_id):
+        """Proxy GET /match/:id (sin /stats) — devuelve score en vivo, minuto, goles."""
+        url = f"{API_ROOT}/match/{match_id}?_t={int(datetime.now().timestamp())}"
+        try:
+            status, data = _proxy_get(url)
+            self.send_response(status)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except urllib.error.URLError as e:
             self._error(str(e))
 
     def _handle_stats(self, match_id):

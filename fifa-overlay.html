@@ -107,15 +107,18 @@
     <script>
     // ══════════════════════════════════════════════════════════════
     //  CONFIGURACIÓN
-    //  El overlay fetchea elnine DIRECTAMENTE desde el browser del
-    //  usuario (IP residencial). NO necesita bridge ni proxy.
-    //
-    //  USO EN OBS: agregar como "Browser Source" → URL local:
-    //    file:///C:/ruta/fifa-overlay.html   (Windows)
-    //    file:///home/user/fifa-overlay.html (Linux/Mac)
-    //  O subir a GitHub Pages y abrir desde ahí si elnine lo permite.
+    //  Todas las llamadas van al BRIDGE (proxy CORS).
+    //  Local:   python bridge.py  → http://localhost:8001
+    //  Render:  reemplazá BRIDGE_URL con tu URL de Render
+    //  OBS:     agregar como "Browser Source"
     // ══════════════════════════════════════════════════════════════
-    const API = 'https://api.elnine.com.ar';
+    // ▼▼▼ Cambiá esta URL por la de tu bridge en Render ▼▼▼
+    const BRIDGE_URL = 'https://TU-BRIDGE.onrender.com';
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    // Autodetección: si estás en localhost usa el bridge local (python bridge.py → puerto 8001)
+    const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+    const API = IS_LOCAL ? 'http://localhost:8001' : BRIDGE_URL;
 
     const CONFIG = {
         autoMatch:        true,
@@ -230,53 +233,79 @@
     // ── ESTADO ───────────────────────────────────────────────────
     const fired = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
-    let prevYH=0, prevYA=0;   // tarjetas amarillas del poll anterior
+
 
     // ── EVENTOS ──────────────────────────────────────────────────
+    // Usa m._events[] poblado por enrichLiveMatch desde /detail/:id
+    // Estructura real: {minute, type:"goal"|"goal-own"|"yellow"|"red",
+    //                   team:"home"|"away", playerName, playerNameFull, assist, assistFull}
     function checkEvents(m) {
         if(!state.ready) return;
-        const {homeName:hn, awayName:an, homeId:hid} = state;
+        const {homeName:hn, awayName:an} = state;
 
-        // Goles (vienen en match.goals[] del schedule)
-        (m.goals||[]).forEach(g => {
-            const key=`${g.contestantId}-${g.timeMin}-${g.periodId}`;
-            if(!fired.goalKeys.has(key)) {
-                fired.goalKeys.add(key);
-                const team = g.contestantId===hid ? hn : an;
-                showEvent({ type:'goal', icon:'⚽',
-                    title:`¡GOL! ${team}`,
-                    sub:`${g.scorerName||''}${g.timeMin?' — '+g.timeMin+"'":''}${g.assistPlayerName?' (Ast: '+g.assistPlayerName+')':''}`,
-                    sfx:SFX.goal, flash:'flash-goal' });
+        (m._events||[]).forEach(ev => {
+            const key = `${ev.type}-${ev.team}-${ev.minute}-${ev.addedMinute||0}-${ev.playerName||''}`;
+            if(fired.goalKeys.has(key)) return;
+            fired.goalKeys.add(key);
+
+            const teamName  = ev.team==='home' ? hn : an;
+            const opponent  = ev.team==='home' ? an : hn;
+            const player    = ev.playerNameFull || ev.playerName || '';
+            const minLabel  = ev.minute != null
+                ? (ev.addedMinute ? `${ev.minute}+${ev.addedMinute}'` : `${ev.minute}'`)
+                : '';
+            const minStr    = minLabel ? ` — ${minLabel}` : '';
+            const assistStr = ev.assist ? ` (Ast: ${ev.assistFull||ev.assist})` : '';
+
+            if(ev.type==='goal') {
+                showEvent({type:'goal', icon:'⚽',
+                    title:`¡GOL! ${teamName}`,
+                    sub:`${player}${minStr}${assistStr}`,
+                    sfx:SFX.goal, flash:'flash-goal'});
+            } else if(ev.type==='goal-own') {
+                showEvent({type:'goal', icon:'⚽',
+                    title:`¡GOL EN CONTRA! ${opponent}`,
+                    sub:`${player}${minStr} (en propia)`,
+                    sfx:SFX.goal, flash:'flash-goal'});
+            } else if(ev.type==='yellow') {
+                showEvent({type:'yellow', icon:'🟨',
+                    title:'TARJETA AMARILLA',
+                    sub:`${player} (${teamName})${minStr}`,
+                    sfx:SFX.yellowCard, flash:'flash-card'});
+            } else if(ev.type==='red') {
+                showEvent({type:'red', icon:'🟥',
+                    title:'TARJETA ROJA',
+                    sub:`${player} (${teamName})${minStr}`,
+                    sfx:SFX.redCard, flash:'flash-card'});
             }
         });
 
-        // Tarjetas rojas (en el schedule: homeTeamRedCards / awayTeamRedCards)
-        const rH=m.homeTeamRedCards||0, rA=m.awayTeamRedCards||0;
-        if(rH>fired.rH){ fired.rH=rH; showEvent({type:'red',icon:'🟥',title:'TARJETA ROJA',sub:hn,sfx:SFX.redCard,flash:'flash-card'}); }
-        if(rA>fired.rA){ fired.rA=rA; showEvent({type:'red',icon:'🟥',title:'TARJETA ROJA',sub:an,sfx:SFX.redCard,flash:'flash-card'}); }
-
-        // Tarjetas amarillas — NO están en el schedule, las trackeamos por
-        // el endpoint /match/:id que sí devuelve stats. Si ese endpoint falla
-        // (lo bloquea elnine server-side), simplemente no se disparan.
-        if(prevYH>fired.yH){ fired.yH=prevYH; showEvent({type:'yellow',icon:'🟨',title:'TARJETA AMARILLA',sub:hn,sfx:SFX.yellowCard,flash:'flash-card'}); }
-        if(prevYA>fired.yA){ fired.yA=prevYA; showEvent({type:'yellow',icon:'🟨',title:'TARJETA AMARILLA',sub:an,sfx:SFX.yellowCard,flash:'flash-card'}); }
-
         // Medio tiempo
-        if(!fired.ht && (m.period==='HT'||(m.status==='live'&&m.period==='2T'&&m.minute!=null&&m.minute<3))) {
+        if(!fired.ht && m.period==='HT') {
             fired.ht=true;
-            showEvent({type:'halftime',icon:'⏸️',title:'MEDIO TIEMPO',sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,sfx:SFX.halfTime,flash:'flash-ht'});
+            showEvent({type:'halftime', icon:'⏸️', title:'MEDIO TIEMPO',
+                sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
+                sfx:SFX.halfTime, flash:'flash-ht'});
         }
 
         // Final
         if(!fired.ft && m.status==='finished') {
             fired.ft=true;
-            showEvent({type:'fulltime',icon:'🏁',title:'FIN DEL PARTIDO',sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,sfx:SFX.fullTime,flash:'flash-ft'});
+            showEvent({type:'fulltime', icon:'🏁', title:'FIN DEL PARTIDO',
+                sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
+                sfx:SFX.fullTime, flash:'flash-ft'});
         }
     }
 
     // ── SCOREBOARD UI ────────────────────────────────────────────
     function formatClock(m) {
-        if(m.status==='live')      return m.period==='HT' ? 'MT' : m.minute!=null ? `${m.minute}'` : 'EN VIVO';
+        if(m.status==='live') {
+            if(m.period==='HT') return 'MT';
+            if(m.minute!=null) {
+                return m.addedMinute ? `${m.minute}+${m.addedMinute}'` : `${m.minute}'`;
+            }
+            return 'EN VIVO';
+        }
         if(m.status==='finished')  return 'FT';
         if(m.status==='postponed') return 'SUSP';
         return new Date(m.startTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -307,11 +336,10 @@
     // ── FETCH SCHEDULE → extraer partido del Mundial ─────────────
     //
     //  FLUJO:
-    //  1. GET /schedule?date={ayer,hoy,mañana}  → array de matches
-    //  2. Filtrar tournamentCalendarSlug === 'fifa-world-cup'
-    //  3. Elegir el mejor (live > recién iniciado > próximo > último terminado)
-    //  4. Todos los datos (score, minute, goals, red cards) vienen del schedule
-    //  5. Opcionalmente GET /match/:id para amarillas (puede fallar, no crítico)
+    //  1. GET /match del bridge → partidos ayer+hoy+mañana en 1 request
+    //  2. Filtrar tournamentCalendarSlug contiene 'world-cup'
+    //  3. Elegir el mejor (live > próximo > último terminado)
+    //  4. Si está live → GET /detail/:id → score, minuto, eventos (goles, tarjetas)
     //
     function pickBest(matches) {
         const now = Date.now();
@@ -327,6 +355,8 @@
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t)&&t>now);
         if(upcoming.length){ upcoming.sort((a,b)=>a.t-b.t); return upcoming[0].m; }
+        // 4. Último partido terminado — sin límite de tiempo para no perder
+        //    partidos que acaban de terminar (ej: USA vs Paraguay FT)
         const finished = matches
             .filter(m=>m.status==='finished')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
@@ -336,21 +366,61 @@
     }
 
     async function fetchScheduleDate(dateStr) {
+        // Cuando API es el bridge local/Render, usamos /schedule igual que elnine.
+        // El bridge expone ese mismo path tal cual.
         const r = await fetch(`${API}/schedule?date=${dateStr}&_t=${Date.now()}`, {cache:'no-store'});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         return (await r.json()).matches || [];
     }
 
-    async function fetchYellowCards(matchId) {
-        // Este endpoint puede estar bloqueado; si falla, simplemente no mostramos amarillas.
-        try {
-            const r = await fetch(`${API}/match/${matchId}/stats?_t=${Date.now()}`, {cache:'no-store'});
-            if(!r.ok) return;
-            const data = await r.json();
-            const row = (data.stats||[]).find(s=>s.label==='Tarjetas amarillas');
-            if(row){ prevYH=Number(row.home)||0; prevYA=Number(row.away)||0; }
-        } catch(e){ /* silencioso — no crítico */ }
+    // Alternativa: un solo fetch a /match que ya trae ayer+hoy+mañana del bridge
+    async function fetchAllViabridge() {
+        const r = await fetch(`${API}/match?_t=${Date.now()}`, {cache:'no-store'});
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        // El bridge devuelve { items: [{tournamentCalendarSlug, matches}] }
+        const all = [];
+        for(const item of (data.items||[])) {
+            for(const m of (item.matches||[])) all.push(m);
+        }
+        return all;
     }
+
+    // Enriquece el partido con datos en tiempo real desde /detail/:id
+    // Estructura real de la API: matchDetail.homeTeam.score, .events[], .minute
+    async function enrichLiveMatch(match) {
+        try {
+            const r = await fetch(`${API}/detail/${match.id}?_t=${Date.now()}`, {cache:'no-store'});
+            if(!r.ok) return match;
+            const raw = await r.json();
+            const d = raw.matchDetail ?? raw;   // la API envuelve en matchDetail
+
+            // Score
+            match.homeScore = d.homeTeam?.score ?? match.homeScore;
+            match.awayScore = d.awayTeam?.score ?? match.awayScore;
+
+            // Minuto — mostrar "45+2" si hay tiempo añadido
+            match.minute  = d.minute  ?? match.minute;
+            match.addedMinute = d.addedMinute ?? null;
+
+            // Periodo y estado
+            if(d.period) match.period = d.period;
+            if(d.status) match.status = d.status;
+
+            // Tarjetas rojas (desde eventos, más fiable)
+            match.homeTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='home').length;
+            match.awayTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='away').length;
+
+            // Convertir events[] al formato que espera checkEvents()
+            // La API usa: {minute, type:"goal"/"goal-own"/"yellow"/"red", team, playerName, playerNameFull, assist}
+            match._events = d.events || [];
+
+        } catch(e) { console.warn('enrichLiveMatch error:', e.message); }
+        return match;
+    }
+
+    // Ya no necesitamos fetchYellowCards separado — vienen en _events
+    async function fetchYellowCards(matchId) { /* reemplazado por enrichLiveMatch */ }
 
     async function poll() {
         try {
@@ -359,28 +429,43 @@
             const y = new Date(now); y.setUTCDate(now.getUTCDate()-1);
             const t = new Date(now); t.setUTCDate(now.getUTCDate()+1);
 
-            // Fetch las 3 fechas en paralelo
-            const results = await Promise.allSettled([
-                fetchScheduleDate(fmt(y)),
-                fetchScheduleDate(fmt(now)),
-                fetchScheduleDate(fmt(t)),
-            ]);
-
-            const seen = new Set(), all = [];
-            for(const r of results) {
-                if(r.status==='fulfilled') {
-                    for(const m of r.value) {
-                        if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+            // Intentar primero el endpoint agregado del bridge (/match → ayer+hoy+mañana en 1 request)
+            // Si falla (bridge no disponible), caer en las 3 requests por fecha
+            let all = [];
+            try {
+                all = await fetchAllViabridge();
+                console.log(`🌐 Datos via bridge /match (${all.length} partidos totales)`);
+            } catch(bridgeErr) {
+                console.warn('⚠️ Bridge /match falló, intentando por fecha:', bridgeErr.message);
+                const results = await Promise.allSettled([
+                    fetchScheduleDate(fmt(y)),
+                    fetchScheduleDate(fmt(now)),
+                    fetchScheduleDate(fmt(t)),
+                ]);
+                const seen = new Set();
+                for(const r of results) {
+                    if(r.status==='fulfilled') {
+                        for(const m of r.value) {
+                            if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+                        }
                     }
                 }
             }
 
             // Filtrar solo partidos del Mundial
-            const wc = all.filter(m=>m.tournamentCalendarSlug==='fifa-world-cup');
+            // Acepta cualquier slug que contenga 'world-cup' para cubrir
+            // variantes como 'fifa-world-cup', 'fifa-world-cup-2026', etc.
+            const WC_SLUGS = ['fifa-world-cup','fifa-world-cup-2026','world-cup-2026','world-cup'];
+            const isWC = m => {
+                const s = (m.tournamentCalendarSlug||'').toLowerCase();
+                return WC_SLUGS.some(k=>s===k) || s.includes('world-cup');
+            };
+            const wc = all.filter(isWC);
             console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs disponibles: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
             wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
 
-            const match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
+
+            let match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
 
             if(!match){ console.warn('⚠️ No hay partido del Mundial'); return; }
 
@@ -395,12 +480,17 @@
                 state.ready=false;
             }
 
+            // Enriquecer siempre en partidos live con datos de /detail (score, minuto, eventos)
+            if(match.status==='live') {
+                match = await enrichLiveMatch(match);
+            }
+
             renderMatch(match);
             checkEvents(match);
             if(!state.ready) state.ready=true;
 
             // Amarillas en paralelo (no bloqueante)
-            fetchYellowCards(match.id);
+            if(match.status==='live') fetchYellowCards(match.id);
 
         } catch(err) {
             console.error('❌ poll error:', err);
