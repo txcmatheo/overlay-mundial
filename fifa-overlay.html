@@ -242,22 +242,11 @@
     // ════════════════════════════════════════════════════════
     //  CONFIGURACIÓN
     // ════════════════════════════════════════════════════════
-    // ════════════════════════════════════════════════════════
-    //  URL DEL BRIDGE
-    //  - En local (Live Server) usa automáticamente localhost:8001
-    //  - En producción (GitHub Pages) pon tu URL de Render abajo
-    // ════════════════════════════════════════════════════════
-    const RENDER_URL  = 'https://overlay-mundial.onrender.com';
-    const IS_LOCAL    = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    const BRIDGE_URL  = IS_LOCAL ? 'http://localhost:8001' : RENDER_URL;
+    const API_ROOT = 'https://api.elnine.com.ar';
 
-        const CONFIG = {
-        // ─── AUTO MODE ───────────────────────────────────────────────
-        // Si autoMatch:true el overlay elige solo el partido en curso
-        // del Mundial. Si no hay ninguno EN VIVO, muestra el PRÓXIMO
-        // partido de FIFA World Cup que aún no ha empezado.
-        // Si prefieres fijar un partido concreto pon autoMatch:false
-        // y escribe su ID en matchId.
+    const CONFIG = {
+        // Si autoMatch:true el overlay elige solo el partido en curso del Mundial.
+        // Si prefieres fijar un partido concreto pon autoMatch:false y escribe su ID en matchId.
         autoMatch: true,
         matchId:   "",          // se llena automáticamente (o ponlo manual)
 
@@ -334,7 +323,7 @@
     }
     function setFlag(imgEl, iso2) {
         if (iso2) { imgEl.src = `https://flagcdn.com/w80/${iso2}.png`; imgEl.style.visibility = "visible"; }
-        else        { imgEl.style.visibility = "hidden"; }
+        else       { imgEl.style.visibility = "hidden"; }
     }
 
     // ════════════════════════════════════════════════════════
@@ -361,12 +350,9 @@
 
     const SOUNDS = {
         goal() {
-            // Fanfarria: secuencia de notas ascendentes + crowd roar simulado
             const notes = [523, 659, 784, 1047, 784, 1047, 1319];
             notes.forEach((f, i) => playTone(f, 'square', 0.18, 0.18, i * 0.13));
-            // bajo festivo
             [130, 196, 261].forEach((f, i) => playTone(f, 'triangle', 0.35, 0.12, i * 0.18));
-            // ruido de multitud (burst de noise)
             try {
                 const ctx = getAudioCtx();
                 const bufLen = ctx.sampleRate * 1.5;
@@ -385,25 +371,20 @@
             } catch(e) {}
         },
         yellowCard() {
-            // Silbato corto
             playTone(2200, 'sine', 0.12, 0.3);
             playTone(2400, 'sine', 0.10, 0.25, 0.14);
             playTone(2200, 'sine', 0.15, 0.2,  0.26);
         },
         redCard() {
-            // Silbato largo + bajo dramático
             playTone(2300, 'sine', 0.5,  0.35);
             playTone(110,  'sawtooth', 0.4, 0.15, 0.55);
             playTone(90,   'sawtooth', 0.4, 0.12, 0.7);
         },
         halfTime() {
-            // Tres silbatazos cortos (patrón reglamentario)
             [0, 0.22, 0.44].forEach(d => playTone(2100, 'sine', 0.15, 0.3, d));
         },
         fullTime() {
-            // Un silbatazo largo al final
             playTone(2100, 'sine', 0.8, 0.35);
-            // Toque de trompeta bajando
             [784, 698, 659, 587, 523].forEach((f, i) => playTone(f, 'square', 0.2, 0.14, 0.9 + i * 0.15));
         }
     };
@@ -412,39 +393,26 @@
     //  PANEL DE EVENTOS
     // ════════════════════════════════════════════════════════
     let eventTimer = null;
-    const panel     = document.getElementById('event-panel');
-    const eCard     = document.getElementById('event-card');
-    const eIcon     = document.getElementById('event-icon');
-    const eTitle    = document.getElementById('event-title');
-    const eSub      = document.getElementById('event-sub');
+    const panel      = document.getElementById('event-panel');
+    const eCard      = document.getElementById('event-card');
+    const eIcon      = document.getElementById('event-icon');
+    const eTitle     = document.getElementById('event-title');
+    const eSub       = document.getElementById('event-sub');
     const scoreboard = document.getElementById('scoreboard');
 
     function showEvent({ type, icon, title, sub, soundFn, flashClass }) {
-        // Limpiar timer anterior
         if (eventTimer) clearTimeout(eventTimer);
-
-        // Flash en scoreboard
         scoreboard.className = 'scoreboard';
-        void scoreboard.offsetWidth; // reflow para re-trigger animación
+        void scoreboard.offsetWidth;
         if (flashClass) scoreboard.classList.add(flashClass);
-
-        // Sonido
-        if (soundFn) {
-            try { soundFn(); } catch(e) { console.warn('Audio:', e); }
-        }
-
-        // Contenido
-        eCard.className = `event-card ${type}`;
+        if (soundFn) { try { soundFn(); } catch(e) { console.warn('Audio:', e); } }
+        eCard.className    = `event-card ${type}`;
         eIcon.textContent  = icon;
         eTitle.textContent = title;
         eSub.textContent   = sub || '';
-
-        // Mostrar
         panel.classList.remove('visible');
         void panel.offsetWidth;
         panel.classList.add('visible');
-
-        // Ocultar después de N ms
         eventTimer = setTimeout(() => {
             panel.classList.remove('visible');
             scoreboard.classList.remove(flashClass);
@@ -452,23 +420,18 @@
     }
 
     // ════════════════════════════════════════════════════════
-    //  ESTADO — qué hemos disparado ya (evitar repeticiones)
+    //  ESTADO
     // ════════════════════════════════════════════════════════
     const fired = {
-        goalKeys:      new Set(),   // "teamId-timeMin" de cada gol
-        yellowHome:    0,
-        yellowAway:    0,
-        redHome:       0,
-        redAway:       0,
-        halfTime:      false,
-        fullTime:      false,
+        goalKeys:   new Set(),
+        yellowHome: 0, yellowAway: 0,
+        redHome:    0, redAway:    0,
+        halfTime:   false, fullTime: false,
     };
 
     let matchState = {
-        homeName: '---',
-        awayName: '---',
-        homeId:   '',
-        awayId:   '',
+        homeName: '---', awayName: '---',
+        homeId: '', awayId: '',
         initialized: false,
     };
 
@@ -476,29 +439,24 @@
     //  LÓGICA DE EVENTOS
     // ════════════════════════════════════════════════════════
     function checkEvents(match, yellowHome, yellowAway) {
-        if (!matchState.initialized) return; // no disparar en la primera carga
-
+        if (!matchState.initialized) return;
         const { homeName, awayName, homeId, awayId } = matchState;
 
-        // ── Goles ──
         (match.goals || []).forEach(g => {
             const key = `${g.contestantId}-${g.timeMin}-${g.periodId}`;
             if (!fired.goalKeys.has(key)) {
                 fired.goalKeys.add(key);
-                const isHome  = g.contestantId === homeId;
+                const isHome   = g.contestantId === homeId;
                 const teamName = isHome ? homeName : awayName;
                 showEvent({
-                    type:      'goal',
-                    icon:      '⚽',
-                    title:     `¡GOL! ${teamName}`,
-                    sub:       `${g.scorerName}${g.timeMin ? ' — ' + g.timeMin + "'" : ''}${g.assistPlayerName ? '  (Ast: ' + g.assistPlayerName + ')' : ''}`,
-                    soundFn:   SOUNDS.goal,
-                    flashClass:'flash-goal'
+                    type: 'goal', icon: '⚽',
+                    title: `¡GOL! ${teamName}`,
+                    sub:   `${g.scorerName}${g.timeMin ? ' — ' + g.timeMin + "'" : ''}${g.assistPlayerName ? '  (Ast: ' + g.assistPlayerName + ')' : ''}`,
+                    soundFn: SOUNDS.goal, flashClass: 'flash-goal'
                 });
             }
         });
 
-        // ── Tarjetas rojas ──
         const rHome = match.homeTeamRedCards || 0;
         const rAway = match.awayTeamRedCards || 0;
         if (rHome > fired.redHome) {
@@ -510,7 +468,6 @@
             showEvent({ type:'red', icon:'🟥', title:'TARJETA ROJA', sub: awayName, soundFn: SOUNDS.redCard, flashClass:'flash-card' });
         }
 
-        // ── Tarjetas amarillas (vienen de /stats) ──
         if (yellowHome > fired.yellowHome) {
             fired.yellowHome = yellowHome;
             showEvent({ type:'yellow', icon:'🟨', title:'TARJETA AMARILLA', sub: homeName, soundFn: SOUNDS.yellowCard, flashClass:'flash-card' });
@@ -520,13 +477,11 @@
             showEvent({ type:'yellow', icon:'🟨', title:'TARJETA AMARILLA', sub: awayName, soundFn: SOUNDS.yellowCard, flashClass:'flash-card' });
         }
 
-        // ── Medio tiempo ──
         if (!fired.halfTime && (match.period === 'HT' || (match.status === 'live' && match.period === '2T' && match.minute != null && match.minute < 3))) {
             fired.halfTime = true;
             showEvent({ type:'halftime', icon:'⏸️', title:'MEDIO TIEMPO', sub:`${homeName} ${match.homeScore ?? 0} — ${match.awayScore ?? 0} ${awayName}`, soundFn: SOUNDS.halfTime, flashClass:'flash-ht' });
         }
 
-        // ── Final del partido ──
         if (!fired.fullTime && match.status === 'finished') {
             fired.fullTime = true;
             showEvent({ type:'fulltime', icon:'🏁', title:'FIN DEL PARTIDO', sub:`${homeName} ${match.homeScore ?? 0} — ${match.awayScore ?? 0} ${awayName}`, soundFn: SOUNDS.fullTime, flashClass:'flash-ft' });
@@ -559,7 +514,7 @@
                 if (match.period === 'HT') return 'MT';
                 if (match.minute != null)   return `${match.minute}'`;
                 return 'EN VIVO';
-            case 'finished': return 'FT';
+            case 'finished':  return 'FT';
             case 'postponed': return 'SUSP';
             default: {
                 const dt = new Date(match.startTime);
@@ -592,7 +547,6 @@
             if (matchState.initialized) pulseScore(els.scoreAway);
         }
 
-        // Guardar referencia de nombres/ids para los eventos
         matchState.homeName = homeName;
         matchState.awayName = awayName;
         matchState.homeId   = match.homeTeam.id;
@@ -600,14 +554,52 @@
     }
 
     // ════════════════════════════════════════════════════════
-    //  FETCHERS
+    //  FETCHERS — directo a api.elnine.com.ar desde el browser
     // ════════════════════════════════════════════════════════
     let lastYellowHome = 0;
     let lastYellowAway = 0;
 
+    // Descarga el schedule de una fecha y retorna el array de matches
+    async function _fetchScheduleDate(dateStr) {
+        const url = `${API_ROOT}/schedule?date=${dateStr}&_t=${Date.now()}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`schedule ${dateStr} → HTTP ${res.status}`);
+        const data = await res.json();
+        return data.matches || [];
+    }
+
+    // Reune partidos de ayer/hoy/mañana (UTC) y los agrupa por slug
+    async function _fetchAllMatches() {
+        const now = new Date();
+        const fmt = d => d.toISOString().slice(0, 10);
+        const yesterday = new Date(now); yesterday.setUTCDate(now.getUTCDate() - 1);
+        const tomorrow  = new Date(now); tomorrow.setUTCDate(now.getUTCDate() + 1);
+
+        const seen = new Set(), allMatches = [];
+        for (const d of [fmt(yesterday), fmt(now), fmt(tomorrow)]) {
+            try {
+                const ms = await _fetchScheduleDate(d);
+                for (const m of ms) {
+                    if (!seen.has(m.id)) { seen.add(m.id); allMatches.push(m); }
+                }
+            } catch(e) {
+                console.warn('schedule fetch error:', e.message);
+            }
+        }
+
+        const groups = {};
+        for (const m of allMatches) {
+            const slug = m.tournamentCalendarSlug || 'unknown';
+            (groups[slug] = groups[slug] || []).push(m);
+        }
+        return Object.entries(groups).map(([slug, matches]) => ({ tournamentCalendarSlug: slug, matches }));
+    }
+
+    // Stats de tarjetas amarillas para el partido activo
     async function fetchStats(matchId) {
+        if (!matchId) return;
         try {
-            const res = await fetch(`${BRIDGE_URL}/stats/${matchId}`, { cache:'no-store' });
+            const res = await fetch(`${API_ROOT}/match/${matchId}/stats?_t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
             const stats = data.stats || [];
@@ -621,18 +613,12 @@
 
     // ════════════════════════════════════════════════════════
     //  SELECCIÓN AUTOMÁTICA DE PARTIDO
-    //  Prioridad: EN VIVO > PRÓXIMO > último TERMINADO hoy
+    //  Prioridad: EN VIVO > recién iniciado > PRÓXIMO > último TERMINADO
     // ════════════════════════════════════════════════════════
-    function isWorldCupSlug(slug) {
-        if (!slug) return false;
-        const s = slug.toLowerCase();
-        return s.includes('world-cup') || s.includes('mundial') || s.includes('fifa-wc');
-    }
-
     function pickBestMatch(items) {
         const wc = [];
         for (const item of items) {
-            if (!isWorldCupSlug(item.tournamentCalendarSlug)) continue;
+            if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
             for (const m of (item.matches || [])) wc.push(m);
         }
         if (!wc.length) return null;
@@ -646,19 +632,17 @@
             return live[0];
         }
 
-        // 2) Partido cuyo startTime ya pasó pero la API aún no lo marca como live
-        //    (suele tardar 1-2 min). Ventana máxima: 2 horas tras el inicio.
+        // 2) Partido cuyo startTime ya pasó pero la API aún no lo marca como live (ventana 2h)
         const pending = wc
             .filter(m => m.status !== 'finished' && m.status !== 'postponed')
             .map(m => ({ m, t: new Date(m.startTime).getTime() }))
             .filter(({ t }) => !isNaN(t) && t <= now && (now - t) <= 2 * 60 * 60 * 1000);
         if (pending.length) {
-            // El que empezó más recientemente
             pending.sort((a, b) => b.t - a.t);
             return pending[0].m;
         }
 
-        // 3) Próximo partido futuro — el más cercano al momento actual
+        // 3) Próximo partido futuro
         const upcoming = wc
             .filter(m => m.status !== 'finished' && m.status !== 'postponed')
             .map(m => ({ m, t: new Date(m.startTime).getTime() }))
@@ -681,53 +665,48 @@
         return null;
     }
 
+    // ════════════════════════════════════════════════════════
+    //  FETCH PRINCIPAL
+    // ════════════════════════════════════════════════════════
     async function fetchMatch() {
         try {
-            const res = await fetch(`${BRIDGE_URL}/match`, { cache:'no-store' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
+            const items = await _fetchAllMatches();
+
+            // Debug: mostrar slugs y partidos del Mundial
+            const wcItems = items.filter(i => i.tournamentCalendarSlug === 'fifa-world-cup');
+            const allWC   = wcItems.flatMap(i => i.matches || []);
+            const now     = Date.now();
+            console.log('⏱', new Date(now).toISOString(),
+                '| slugs:', items.map(i => `${i.tournamentCalendarSlug}(${i.matches.length})`).join(', '));
+            allWC.forEach(m => {
+                const t = new Date(m.startTime).getTime();
+                console.log(`  [${m.status}] ${m.homeTeam?.name} vs ${m.awayTeam?.name} | start=${m.startTime} | diff=${Math.round((t-now)/60000)}min`);
+            });
 
             let match = null;
 
             if (CONFIG.autoMatch) {
-                // ── Modo automático ──────────────────────────────────
-                const wc = (data.items || []).filter(i => isWorldCupSlug(i.tournamentCalendarSlug));
-                const allWC = wc.flatMap(i => i.matches || []);
-                const now = Date.now();
-                console.log('⏱ now (UTC ms):', now, '=', new Date(now).toISOString());
-                // 🔍 DEBUG: mostrar todos los slugs disponibles
-                const allSlugs = (data.items || []).map(i => `${i.tournamentCalendarSlug}(${(i.matches||[]).length})`);
-                console.log('📋 Slugs disponibles:', allSlugs.join(', '));
-                allWC.forEach(m => {
-                    const t = new Date(m.startTime).getTime();
-                    console.log(`  [${m.status}] ${m.homeTeam?.name} vs ${m.awayTeam?.name} | start=${m.startTime} | t=${t} | diff=${Math.round((t-now)/60000)}min`);
-                });
-                match = pickBestMatch(data.items || []);
+                match = pickBestMatch(items);
                 console.log('✅ partido elegido:', match ? `${match.homeTeam?.name} vs ${match.awayTeam?.name}` : 'null');
                 if (!match) { console.warn('No se encontró partido FIFA World Cup'); return; }
 
-                // Si cambió el partido (terminó el anterior y arrancó uno nuevo)
                 if (match.id !== CONFIG.matchId) {
-                    console.info(`🔄 Partido actualizado → ${match.id} (${match.homeTeam?.name} vs ${match.awayTeam?.name})`);
+                    console.info(`🔄 Partido → ${match.id} (${match.homeTeam?.name} vs ${match.awayTeam?.name})`);
                     CONFIG.matchId = match.id;
-
-                    // Resetear estado para el nuevo partido
                     fired.goalKeys.clear();
                     fired.yellowHome = 0; fired.yellowAway = 0;
                     fired.redHome    = 0; fired.redAway    = 0;
                     fired.halfTime   = false; fired.fullTime = false;
                     lastYellowHome   = 0; lastYellowAway  = 0;
                     matchState.initialized = false;
-
-                    // Precargar stats del nuevo partido
                     await fetchStats(match.id);
                     fired.yellowHome = lastYellowHome;
                     fired.yellowAway = lastYellowAway;
                 }
             } else {
-                // ── Modo manual (matchId fijo) ───────────────────────
-                for (const item of data.items || []) {
-                    if (!isWorldCupSlug(item.tournamentCalendarSlug)) continue;
+                // Modo manual: matchId fijo
+                for (const item of items) {
+                    if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
                     const found = (item.matches || []).find(m => m.id === CONFIG.matchId);
                     if (found) { match = found; break; }
                 }
@@ -736,22 +715,20 @@
 
             updateScoreboard(match);
             checkEvents(match, lastYellowHome, lastYellowAway);
-
             if (!matchState.initialized) matchState.initialized = true;
+
         } catch(err) {
-            console.error('Error fetch match:', err);
+            console.error('Error fetchMatch:', err);
         }
     }
 
     // ════════════════════════════════════════════════════════
     //  INICIO
     // ════════════════════════════════════════════════════════
-    // Primera llamada: obtiene el partido activo/próximo,
-    // precarga sus stats y luego arranca los intervalos.
     async function init() {
-        await fetchMatch();                                  // detecta y fija CONFIG.matchId
+        await fetchMatch();
         if (CONFIG.matchId) {
-            await fetchStats(CONFIG.matchId);               // pre-carga stats iniciales
+            await fetchStats(CONFIG.matchId);
             fired.yellowHome = lastYellowHome;
             fired.yellowAway = lastYellowAway;
         }
