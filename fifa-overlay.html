@@ -365,21 +365,45 @@
         return null;
     }
 
+    // Fechas en hora Argentina (UTC-3) — mismo criterio que elnine para indexar partidos
+    function arDates() {
+        const AR_OFFSET = -3 * 60; // minutos
+        const now = new Date();
+        const toAR = d => { const x = new Date(d); x.setMinutes(x.getMinutes() + AR_OFFSET - x.getTimezoneOffset()); return x; };
+        const fmt  = d => toAR(d).toISOString().slice(0,10);
+        const y = new Date(now); y.setDate(now.getDate()-1);
+        const t = new Date(now); t.setDate(now.getDate()+1);
+        return [fmt(y), fmt(now), fmt(t)];
+    }
+
+    // Llama directamente a elnine (funciona desde el browser, CORS está abierto)
     async function fetchScheduleDate(dateStr) {
-        // Fallback: intenta llamar directamente a elnine (puede fallar por CORS desde GitHub Pages).
-        // En producción esto raramente se ejecuta porque fetchAllViabridge cubre los 3 días.
         const url = `https://api.elnine.com.ar/schedule?date=${dateStr}&_t=${Date.now()}`;
         const r = await fetch(url, {cache:'no-store'});
-        if(!r.ok) throw new Error(`elnine directo HTTP ${r.status}`);
+        if(!r.ok) throw new Error(`elnine HTTP ${r.status}`);
         return (await r.json()).matches || [];
     }
 
-    // Alternativa: un solo fetch a /match que ya trae ayer+hoy+mañana del bridge
+    // Fetch directo a elnine para las 3 fechas en paralelo (estrategia principal)
+    async function fetchAllDirect() {
+        const dates = arDates();
+        const results = await Promise.allSettled(dates.map(d => fetchScheduleDate(d)));
+        const seen = new Set(), all = [];
+        for(const r of results) {
+            if(r.status==='fulfilled') {
+                for(const m of r.value) {
+                    if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+                }
+            }
+        }
+        return all;
+    }
+
+    // Bridge como fallback (solo útil en localhost)
     async function fetchAllViabridge() {
         const r = await fetch(`${API}/match?_t=${Date.now()}`, {cache:'no-store'});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        // El bridge devuelve { items: [{tournamentCalendarSlug, matches}] }
         const all = [];
         for(const item of (data.items||[])) {
             for(const m of (item.matches||[])) all.push(m);
@@ -387,70 +411,59 @@
         return all;
     }
 
-    // Enriquece el partido con datos en tiempo real desde /detail/:id
-    // Estructura real de la API: matchDetail.homeTeam.score, .events[], .minute
+    // Enriquece el partido con datos en tiempo real desde elnine /match/:id
     async function enrichLiveMatch(match) {
-        try {
-            const r = await fetch(`${API}/detail/${match.id}?_t=${Date.now()}`, {cache:'no-store'});
-            if(!r.ok) return match;
-            const raw = await r.json();
-            const d = raw.matchDetail ?? raw;   // la API envuelve en matchDetail
+        // Intentar primero directo a elnine, fallback al bridge
+        const urls = [
+            `https://api.elnine.com.ar/match/${match.id}?_t=${Date.now()}`,
+            `${API}/detail/${match.id}?_t=${Date.now()}`,
+        ];
+        for(const url of urls) {
+            try {
+                const r = await fetch(url, {cache:'no-store'});
+                if(!r.ok) continue;
+                const raw = await r.json();
+                const d = raw.matchDetail ?? raw;
 
-            // Score
-            match.homeScore = d.homeTeam?.score ?? match.homeScore;
-            match.awayScore = d.awayTeam?.score ?? match.awayScore;
-
-            // Minuto — mostrar "45+2" si hay tiempo añadido
-            match.minute  = d.minute  ?? match.minute;
-            match.addedMinute = d.addedMinute ?? null;
-
-            // Periodo y estado
-            if(d.period) match.period = d.period;
-            if(d.status) match.status = d.status;
-
-            // Tarjetas rojas (desde eventos, más fiable)
-            match.homeTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='home').length;
-            match.awayTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='away').length;
-
-            // Convertir events[] al formato que espera checkEvents()
-            // La API usa: {minute, type:"goal"/"goal-own"/"yellow"/"red", team, playerName, playerNameFull, assist}
-            match._events = d.events || [];
-
-        } catch(e) { console.warn('enrichLiveMatch error:', e.message); }
+                match.homeScore    = d.homeTeam?.score   ?? match.homeScore;
+                match.awayScore    = d.awayTeam?.score   ?? match.awayScore;
+                match.minute       = d.minute             ?? match.minute;
+                match.addedMinute  = d.addedMinute        ?? null;
+                if(d.period) match.period = d.period;
+                if(d.status) match.status = d.status;
+                match.homeTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='home').length;
+                match.awayTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='away').length;
+                match._events = d.events || [];
+                break; // éxito, salir del loop
+            } catch(e) { /* intentar siguiente URL */ }
+        }
         return match;
     }
 
-    // Ya no necesitamos fetchYellowCards separado — vienen en _events
     async function fetchYellowCards(matchId) { /* reemplazado por enrichLiveMatch */ }
 
     async function poll() {
         try {
-            const now = new Date();
-            const fmt = d => d.toISOString().slice(0,10);
-            const y = new Date(now); y.setUTCDate(now.getUTCDate()-1);
-            const t = new Date(now); t.setUTCDate(now.getUTCDate()+1);
-
-            // Intentar primero el endpoint agregado del bridge (/match → ayer+hoy+mañana en 1 request)
-            // Si falla (bridge no disponible), caer en las 3 requests por fecha
             let all = [];
-            try {
-                all = await fetchAllViabridge();
-                console.log(`🌐 Bridge /match OK → ${all.length} partidos (${API})`);
-            } catch(bridgeErr) {
-                console.warn(`⚠️ Bridge /match falló (${API}):`, bridgeErr.message);
-                console.warn('   Intentando elnine directo (puede fallar por CORS)...');
-                const results = await Promise.allSettled([
-                    fetchScheduleDate(fmt(y)),
-                    fetchScheduleDate(fmt(now)),
-                    fetchScheduleDate(fmt(t)),
-                ]);
-                const seen = new Set();
-                for(const r of results) {
-                    if(r.status==='fulfilled') {
-                        for(const m of r.value) {
-                            if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
-                        }
-                    }
+
+            if(IS_LOCAL) {
+                // Local: usar bridge primero (evita CORS en file://)
+                try {
+                    all = await fetchAllViabridge();
+                    console.log(`🏠 Bridge local OK → ${all.length} partidos`);
+                } catch(e) {
+                    console.warn('Bridge local falló, intentando directo:', e.message);
+                    all = await fetchAllDirect();
+                }
+            } else {
+                // Online (GitHub Pages, etc.): llamar directo a elnine — el bridge de Render
+                // está siendo bloqueado por elnine. elnine sí permite CORS desde browsers.
+                try {
+                    all = await fetchAllDirect();
+                    console.log(`🌐 Elnine directo OK → ${all.length} partidos`);
+                } catch(e) {
+                    console.warn('Elnine directo falló, intentando bridge:', e.message);
+                    all = await fetchAllViabridge();
                 }
             }
 
