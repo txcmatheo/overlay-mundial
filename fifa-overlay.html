@@ -8,36 +8,102 @@
         @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;1,700&display=swap');
         * { box-sizing: border-box; }
         body {
-            margin: 0; padding: 20px;
+            margin: 0; padding: 12px;
             background-color: transparent;
             font-family: 'Barlow Condensed', sans-serif;
             overflow: hidden;
         }
+        .overlay-row {
+            --home-a: #00ffc8; --home-b: #ffffff;
+            --away-a: #8a6bff; --away-b: #ffffff;
+            display: flex; align-items: center; width: fit-content;
+        }
         .scoreboard {
             display: flex; align-items: center;
-            background: #000; border-radius: 12px;
-            padding: 4px 8px; width: fit-content;
+            background: #0a0a0a; border-radius: 50px;
+            padding: var(--sb-pad-v, 8px) var(--sb-pad-h, 28px); width: fit-content;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            border: 2px solid #222; position: relative;
+            position: relative; isolation: isolate; z-index: 2;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        /* grids de colores asociados a cada bandera, confinados a cada lado */
+        .scoreboard::before, .scoreboard::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 58%;
+            z-index: 0; pointer-events: none; opacity: 0.16; mix-blend-mode: screen;
+            background-image:
+                repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 14px),
+                repeating-linear-gradient(0deg,  currentColor 0 1px, transparent 1px 14px);
+        }
+        .scoreboard::before {
+            left: 0; color: var(--home-a); border-radius: 50px 0 0 50px;
+            -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+            -webkit-mask-composite: destination-in;
+                    mask-image: linear-gradient(90deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+                    mask-composite: intersect;
+        }
+        .scoreboard::after {
+            right: 0; color: var(--away-a); border-radius: 0 50px 50px 0;
+            -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+            -webkit-mask-composite: destination-in;
+                    mask-image: linear-gradient(270deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+                    mask-composite: intersect;
+        }
+        /* Anillo grueso uniforme en todo el perímetro */
+        .accent-line {
+            position: absolute; inset: -6px;
+            border-radius: 58px; z-index: -1; pointer-events: none;
+            padding: 6px;
+            background: linear-gradient(90deg, var(--home-a), var(--home-b) 45%, var(--away-b) 55%, var(--away-a));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+                    mask-image: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    mask-composite: exclude;
+            filter: drop-shadow(0 0 4px var(--home-a)) drop-shadow(0 0 4px var(--away-a));
+            opacity: 0.9;
+            clip-path: inset(8px 0 0 0 round 58px);
         }
         .timer-box {
             background: #fff; color: #000;
-            padding: 6px 16px; font-size: 28px; font-weight: bold;
-            border-radius: 8px; min-width: 70px; text-align: center;
-            box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
+            padding: var(--timer-pad-v, 8px) var(--timer-pad-r, 32px) var(--timer-pad-v, 8px) var(--timer-pad-l, 20px);
+            font-size: var(--timer-font, 22px); font-weight: 800;
+            border-radius: 50px; min-width: var(--timer-min-w, 60px); text-align: center;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            position: relative; z-index: 1; margin-right: var(--timer-overlap, -26px);
         }
-        .teams-container { display: flex; align-items: center; padding: 0 10px; }
-        .team { display: flex; align-items: center; color: #fff; font-size: 26px; letter-spacing: 1px; }
-        .flag { width: 32px; height: 22px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
-        .team-name { padding: 0 10px; font-weight: 700; }
+        .teams-container { display: flex; align-items: center; }
+        .team { position: relative; z-index: 2; display: flex; align-items: center; color: #fff; font-size: var(--team-font, 26px); letter-spacing: 2px; gap: var(--team-gap, 8px); }
+        .flag { width: var(--flag-w, 34px); height: var(--flag-h, 22px); object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+        .dot { width: var(--dot-size, 10px); height: var(--dot-size, 10px); border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .dot-home { background: var(--home-a); }
+        .dot-away { background: var(--away-a); }
+        .team-name { padding: 0 3px; font-weight: 700; white-space: nowrap; }
         .score-box {
-            background: #00ffcc; color: #000;
-            font-size: 28px; font-weight: bold;
-            padding: 4px 14px; border-radius: 6px;
-            margin: 0 8px; min-width: 20px; text-align: center;
+            position: relative; z-index: 3;
+            background: #00ffc8; color: #000;
+            font-size: var(--score-font, 34px); font-weight: 900;
+            padding: var(--score-pad-v, 10px) var(--score-pad-h, 14px); border-radius: 10px;
+            margin: var(--score-margin-v, -13px) 0 var(--score-margin-v, -13px) 0;
+            min-width: var(--score-min-w, 44px); text-align: center;
+            align-self: stretch;
+            display: flex; align-items: center; justify-content: center;
+            line-height: 1;
         }
-        .logo-center { height: 35px; margin: 0 5px; display: flex; align-items: center; }
-        .logo-center img { height: 100%; filter: drop-shadow(0px 0px 2px rgba(255,255,255,0.8)); }
+        #score-home { margin-right: var(--score-overlap, -8px); }
+        #score-away { margin-left:  var(--score-overlap, -8px); }
+        .logo-center {
+            position: relative; z-index: 6;
+            display: flex; align-items: center; justify-content: center;
+            background: #111; border-radius: 12px;
+            padding: var(--logo-pad-v, 8px) var(--logo-pad-h, 10px);
+            margin: var(--logo-margin, -26px) 0;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.9);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        .logo-center img { height: var(--logo-h, 58px); filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); }
         .pulse { animation: pulse-anim 0.4s ease-in-out; }
         @keyframes pulse-anim {
             0%   { transform: scale(1); }
@@ -76,21 +142,26 @@
     </style>
 </head>
 <body>
-    <div class="scoreboard" id="scoreboard">
+    <div class="overlay-row">
         <div class="timer-box" id="clock">--:--</div>
-        <div class="teams-container">
-            <div class="team">
-                <img class="flag" id="flag-home" src="" alt="">
-                <span class="team-name" id="name-home">---</span>
+        <div class="scoreboard" id="scoreboard">
+            <div class="accent-line"></div>
+            <div class="teams-container">
+                <div class="team">
+                    <img class="flag" id="flag-home" src="" alt="">
+                    <span class="dot dot-home"></span>
+                    <span class="team-name" id="name-home">---</span>
+                </div>
                 <div class="score-box" id="score-home">0</div>
-            </div>
-            <div class="logo-center">
-                <img src="https://cdn.elnine.com.ar/leagues/world-cup-white.webp" alt="FIFA 26">
-            </div>
-            <div class="team">
+                <div class="logo-center">
+                    <img src="https://cdn.elnine.com.ar/leagues/world-cup-white.webp" alt="FIFA 26">
+                </div>
                 <div class="score-box" id="score-away">0</div>
-                <span class="team-name" id="name-away">---</span>
-                <img class="flag" id="flag-away" src="" alt="">
+                <div class="team">
+                    <span class="team-name" id="name-away">---</span>
+                    <span class="dot dot-away"></span>
+                    <img class="flag" id="flag-away" src="" alt="">
+                </div>
             </div>
         </div>
     </div>
@@ -116,9 +187,10 @@
     const BRIDGE_URL = 'https://overlay-mundial.onrender.com';
     // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-    // Autodetección: si estás en localhost usa el bridge local (python bridge.py → puerto 8001)
-    const IS_LOCAL = location.protocol !== 'https:';
-    const API = IS_LOCAL ? 'http://localhost:8001' : BRIDGE_URL;
+    // Bridges a probar en orden: local (si estás corriendo bridge.py) y Render.
+    // En producción (GitHub Pages) el intento al bridge local falla casi
+    // instantáneamente (connection refused) y se pasa al siguiente.
+    const LOCAL_BRIDGE = 'http://localhost:8001';
 
     const CONFIG = {
         autoMatch:        true,
@@ -179,6 +251,42 @@
     };
     const flagInfo = name => COUNTRY_MAP[name] || [null, name.substring(0,3).toUpperCase()];
     const setFlag  = (el, iso) => { if(iso){el.src=`https://flagcdn.com/w80/${iso}.png`;el.style.visibility='visible';}else{el.style.visibility='hidden';} };
+
+    // ── COLORES DE BANDERA (para el grid del scoreboard) ─────────
+    // [colorPrincipal, colorSecundario] por código ISO
+    const FLAG_COLORS = {
+        ca:['#FF0000','#FFFFFF'], ba:['#002395','#FECB00'], us:['#B22234','#3C3B6E'],
+        py:['#D52B1E','#0038A8'], mx:['#006847','#CE1126'], ar:['#75AADB','#F6B40E'],
+        br:['#009639','#FEDD00'], uy:['#0038A8','#FCD116'], co:['#FCD116','#CE1126'],
+        ec:['#FFD100','#034EA2'], cl:['#0033A0','#D52B1E'], pe:['#D91023','#FFFFFF'],
+        bo:['#D52B1E','#007934'], ve:['#FFCC00','#00247D'], fr:['#0055A4','#EF4135'],
+        de:['#DD0000','#FFCE00'], es:['#AA151B','#F1BF00'], 'gb-eng':['#CE1124','#FFFFFF'],
+        pt:['#046A38','#DA291C'], nl:['#FF9B00','#21468B'], be:['#FFD90F','#ED2939'],
+        it:['#008C45','#CD212A'], hr:['#FF0000','#171796'], ma:['#C1272D','#006233'],
+        jp:['#BC002D','#FFFFFF'], kr:['#003478','#C60C30'], sn:['#00853F','#FDEF42'],
+        gh:['#FCD116','#006B3F'], ng:['#008751','#FFFFFF'], cm:['#007A5E','#CE1126'],
+        tn:['#E70013','#FFFFFF'], eg:['#CE1126','#FFD700'], dz:['#006233','#D21034'],
+        ci:['#F77F00','#009E60'], za:['#007A4D','#FFB81C'], sa:['#006C35','#FFFFFF'],
+        ir:['#239F40','#DA0000'], qa:['#8A1538','#FFFFFF'], au:['#00008B','#FF0000'],
+        nz:['#00247D','#CC142B'], pl:['#DC143C','#FFFFFF'], ch:['#FF0000','#FFFFFF'],
+        dk:['#C8102E','#FFFFFF'], se:['#006AA7','#FECC02'], no:['#BA0C2F','#00205B'],
+        at:['#ED2939','#FFFFFF'], rs:['#C6363C','#0C4076'], ua:['#0057B7','#FFD700'],
+        cz:['#D7141A','#11457E'], 'gb-wls':['#C8102E','#00B140'], 'gb-sct':['#0065BD','#FFFFFF'],
+        tr:['#E30A17','#FFFFFF'], gr:['#0D5EAF','#FFFFFF'], pa:['#DA291C','#072357'],
+        cr:['#CE1126','#002B7F'], jm:['#009B3A','#FED100'], hn:['#0073CF','#FFFFFF'],
+        ht:['#00209F','#D21034'], jo:['#CE1126','#007A3D'], uz:['#0099B5','#1EB53A'],
+        cw:['#002B7F','#F9E814'], nc:['#003F87','#ED2939'],
+    };
+    const flagAccents = iso => FLAG_COLORS[iso] || ['#00ffc8','#ffffff'];
+    const row = document.querySelector('.overlay-row');
+    function applyTeamColors(hIso, aIso) {
+        const [ha,hb] = flagAccents(hIso);
+        const [aa,ab] = flagAccents(aIso);
+        row.style.setProperty('--home-a', ha);
+        row.style.setProperty('--home-b', hb);
+        row.style.setProperty('--away-a', aa);
+        row.style.setProperty('--away-b', ab);
+    }
 
     // ── AUDIO ────────────────────────────────────────────────────
     let _actx = null;
@@ -297,6 +405,63 @@
         }
     }
 
+    // ── AUTO-SCALE ───────────────────────────────────────────────
+    // Ajusta dinámicamente todos los tamaños según la longitud combinada
+    // de los nombres de los equipos, sin equipos predefinidos.
+    function autoScale(homeName, awayName) {
+        // Longitud total de caracteres (ambos equipos)
+        const totalChars = (homeName || '').length + (awayName || '').length;
+
+        // Definir breakpoints: [maxChars, escala]
+        // escala 1.0 = tamaños base originales
+        let scale;
+        if      (totalChars <=  8) scale = 1.15;  // nombres muy cortos (BRA, ARG)
+        else if (totalChars <= 12) scale = 1.0;   // nombres cortos normales
+        else if (totalChars <= 16) scale = 0.88;  // nombres medianos
+        else if (totalChars <= 20) scale = 0.78;  // nombres largos
+        else if (totalChars <= 26) scale = 0.68;  // nombres muy largos
+        else                       scale = 0.58;  // extremadamente largos
+
+        const r = document.querySelector('.overlay-row');
+        const s = v => `${Math.round(v * scale)}px`;
+        const f = v => `${(v * scale).toFixed(1)}px`;
+
+        // Fuentes
+        r.style.setProperty('--team-font',   f(26));
+        r.style.setProperty('--score-font',  f(34));
+        r.style.setProperty('--timer-font',  f(22));
+
+        // Gaps y tamaños
+        r.style.setProperty('--team-gap',    s(8));
+        r.style.setProperty('--dot-size',    s(10));
+        r.style.setProperty('--flag-w',      s(34));
+        r.style.setProperty('--flag-h',      s(22));
+
+        // Score box
+        r.style.setProperty('--score-pad-v',    s(10));
+        r.style.setProperty('--score-pad-h',    s(14));
+        r.style.setProperty('--score-min-w',    s(44));
+        r.style.setProperty('--score-margin-v', `-${s(13).replace('px','')}px`);
+        r.style.setProperty('--score-overlap',  `-${s(8).replace('px','')}px`);
+
+        // Logo central
+        r.style.setProperty('--logo-h',       s(58));
+        r.style.setProperty('--logo-pad-v',   s(8));
+        r.style.setProperty('--logo-pad-h',   s(10));
+        r.style.setProperty('--logo-margin',  `-${s(26).replace('px','')}px`);
+
+        // Timer / reloj
+        r.style.setProperty('--timer-pad-v',      s(8));
+        r.style.setProperty('--timer-pad-r',      s(32));
+        r.style.setProperty('--timer-pad-l',      s(20));
+        r.style.setProperty('--timer-min-w',      s(60));
+        r.style.setProperty('--timer-overlap',    `-${s(26).replace('px','')}px`);
+
+        // Scoreboard padding
+        r.style.setProperty('--sb-pad-v',  s(8));
+        r.style.setProperty('--sb-pad-h',  s(28));
+    }
+
     // ── SCOREBOARD UI ────────────────────────────────────────────
     function formatClock(m) {
         if(m.status==='live') {
@@ -317,10 +482,14 @@
         const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
         const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
 
+        // Ajustar tamaños automáticamente según los nombres reales
+        autoScale(hn, an);
+
         ui.nameHome.textContent = hn;
         ui.nameAway.textContent = an;
         setFlag(ui.flagHome, hIso);
         setFlag(ui.flagAway, aIso);
+        applyTeamColors(hIso, aIso);
 
         const clk = formatClock(m);
         if(ui.clock.textContent!==clk) ui.clock.textContent=clk;
@@ -408,9 +577,9 @@
         return all;
     }
 
-    // Bridge como fallback (solo útil en localhost)
-    async function fetchAllViabridge() {
-        const r = await fetch(`${API}/match?_t=${Date.now()}`, {cache:'no-store'});
+    // Bridge como fallback (proxy CORS), parametrizado por URL base
+    async function fetchAllViaBridge(base) {
+        const r = await fetch(`${base}/match?_t=${Date.now()}`, {cache:'no-store'});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const all = [];
@@ -420,12 +589,35 @@
         return all;
     }
 
+    // Intenta, en orden: bridge local → elnine directo → bridge de Render.
+    // El primero que responda sin lanzar error (incluso con 0 partidos
+    // legítimos) gana. Errores (CORS, connection refused, etc.) pasan al siguiente.
+    async function fetchAllSmart() {
+        const strategies = [
+            ['bridge-local',  () => fetchAllViaBridge(LOCAL_BRIDGE)],
+            ['elnine-directo', fetchAllDirect],
+            ['bridge-render', () => fetchAllViaBridge(BRIDGE_URL)],
+        ];
+        for(const [name, fn] of strategies) {
+            try {
+                const all = await fn();
+                console.log(`✅ ${name} OK → ${all.length} partidos`);
+                return all;
+            } catch(e) {
+                console.warn(`⚠️ ${name} falló:`, e.message);
+            }
+        }
+        console.error('❌ Todas las fuentes fallaron');
+        return [];
+    }
+
     // Enriquece el partido con datos en tiempo real desde elnine /match/:id
     async function enrichLiveMatch(match) {
         // Intentar primero directo a elnine, fallback al bridge
         const urls = [
             `https://api.elnine.com.ar/match/${match.id}?_t=${Date.now()}`,
-            `${API}/detail/${match.id}?_t=${Date.now()}`,
+            `${LOCAL_BRIDGE}/detail/${match.id}?_t=${Date.now()}`,
+            `${BRIDGE_URL}/detail/${match.id}?_t=${Date.now()}`,
         ];
         for(const url of urls) {
             try {
@@ -453,28 +645,7 @@
 
     async function poll() {
         try {
-            let all = [];
-
-            if(IS_LOCAL) {
-                // Local: usar bridge primero (evita CORS en file://)
-                try {
-                    all = await fetchAllViabridge();
-                    console.log(`🏠 Bridge local OK → ${all.length} partidos`);
-                } catch(e) {
-                    console.warn('Bridge local falló, intentando directo:', e.message);
-                    all = await fetchAllDirect();
-                }
-            } else {
-                // Online (GitHub Pages, etc.): llamar directo a elnine — el bridge de Render
-                // está siendo bloqueado por elnine. elnine sí permite CORS desde browsers.
-                try {
-                    all = await fetchAllDirect();
-                    console.log(`🌐 Elnine directo OK → ${all.length} partidos`);
-                } catch(e) {
-                    console.warn('Elnine directo falló, intentando bridge:', e.message);
-                    all = await fetchAllViabridge();
-                }
-            }
+            const all = await fetchAllSmart();
 
             // Filtrar solo partidos del Mundial
             // Acepta cualquier slug que contenga 'world-cup' para cubrir
@@ -522,7 +693,7 @@
     }
 
     // ── INIT ─────────────────────────────────────────────────────
-    console.log(`🚀 Overlay iniciado | API: ${API} | local: ${IS_LOCAL}`);
+    console.log(`🚀 Overlay iniciado | bridges: local=${LOCAL_BRIDGE} render=${BRIDGE_URL}`);
     poll();
     setInterval(poll, CONFIG.pollIntervalMs);
     </script>
