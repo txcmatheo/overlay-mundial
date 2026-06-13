@@ -623,10 +623,16 @@
     //  SELECCIÓN AUTOMÁTICA DE PARTIDO
     //  Prioridad: EN VIVO > PRÓXIMO > último TERMINADO hoy
     // ════════════════════════════════════════════════════════
+    function isWorldCupSlug(slug) {
+        if (!slug) return false;
+        const s = slug.toLowerCase();
+        return s.includes('world-cup') || s.includes('mundial') || s.includes('fifa-wc');
+    }
+
     function pickBestMatch(items) {
         const wc = [];
         for (const item of items) {
-            if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
+            if (!isWorldCupSlug(item.tournamentCalendarSlug)) continue;
             for (const m of (item.matches || [])) wc.push(m);
         }
         if (!wc.length) return null;
@@ -685,10 +691,13 @@
 
             if (CONFIG.autoMatch) {
                 // ── Modo automático ──────────────────────────────────
-                const wc = (data.items || []).filter(i => i.tournamentCalendarSlug === 'fifa-world-cup');
+                const wc = (data.items || []).filter(i => isWorldCupSlug(i.tournamentCalendarSlug));
                 const allWC = wc.flatMap(i => i.matches || []);
                 const now = Date.now();
                 console.log('⏱ now (UTC ms):', now, '=', new Date(now).toISOString());
+                // 🔍 DEBUG: mostrar todos los slugs disponibles
+                const allSlugs = (data.items || []).map(i => `${i.tournamentCalendarSlug}(${(i.matches||[]).length})`);
+                console.log('📋 Slugs disponibles:', allSlugs.join(', '));
                 allWC.forEach(m => {
                     const t = new Date(m.startTime).getTime();
                     console.log(`  [${m.status}] ${m.homeTeam?.name} vs ${m.awayTeam?.name} | start=${m.startTime} | t=${t} | diff=${Math.round((t-now)/60000)}min`);
@@ -718,7 +727,7 @@
             } else {
                 // ── Modo manual (matchId fijo) ───────────────────────
                 for (const item of data.items || []) {
-                    if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
+                    if (!isWorldCupSlug(item.tournamentCalendarSlug)) continue;
                     const found = (item.matches || []).find(m => m.id === CONFIG.matchId);
                     if (found) { match = found; break; }
                 }
@@ -747,7 +756,7 @@
             fired.yellowAway = lastYellowAway;
         }
         setInterval(fetchMatch, CONFIG.pollIntervalMs);
-        setInterval(() => fetchStats(CONFIG.matchId), CONFIG.statsPollIntervalMs);
+        setInterval(() => { if (CONFIG.matchId) fetchStats(CONFIG.matchId); }, CONFIG.statsPollIntervalMs);
     }
     init();
     </script>
