@@ -71,9 +71,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        qs   = urllib.parse.urlparse(self.path).query
 
         if path == "/match":
             self._handle_matches()
+        elif path == "/schedule":
+            self._handle_schedule(qs)
         elif re.match(r"^/stats/[A-Za-z0-9_-]+$", path):
             self._handle_stats(path.split("/")[-1])
         elif re.match(r"^/detail/[A-Za-z0-9_-]+$", path):
@@ -84,6 +87,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self._cors()
             self.end_headers()
+
+    def _handle_schedule(self, qs):
+        """Proxy directo a /schedule de elnine — permite que el HTML llame /schedule?date=..."""
+        url = f"{API_ROOT}/schedule?{qs}&_t={int(datetime.now().timestamp())}"
+        try:
+            status, data = _proxy_get(url)
+            self.send_response(status)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except urllib.error.URLError as e:
+            self._error(str(e))
 
     def _handle_matches(self):
         try:

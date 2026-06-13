@@ -366,31 +366,17 @@
     }
 
     async function fetchScheduleDate(dateStr) {
-        // El bridge NO expone /schedule; usa elnine directamente sólo en local,
-        // y en producción re-usa /match (que ya trae ayer+hoy+mañana).
-        // Este path es sólo el fallback de último recurso.
-        const base = IS_LOCAL
-            ? 'https://api.elnine.com.ar'
-            : API;           // en Render volvemos a pedir /match y deduplicamos
-        const url = IS_LOCAL
-            ? `${base}/schedule?date=${dateStr}&_t=${Date.now()}`
-            : `${base}/match?_t=${Date.now()}`;
+        // Fallback: intenta llamar directamente a elnine (puede fallar por CORS desde GitHub Pages).
+        // En producción esto raramente se ejecuta porque fetchAllViabridge cubre los 3 días.
+        const url = `https://api.elnine.com.ar/schedule?date=${dateStr}&_t=${Date.now()}`;
         const r = await fetch(url, {cache:'no-store'});
-        if(!r.ok) throw new Error(`HTTP ${r.status}`);
-        if(IS_LOCAL) return (await r.json()).matches || [];
-        // Producción: /match devuelve {items:[{matches}]}
-        const data = await r.json();
-        const all = [];
-        for(const item of (data.items||[])) for(const m of (item.matches||[])) all.push(m);
-        return all;
+        if(!r.ok) throw new Error(`elnine directo HTTP ${r.status}`);
+        return (await r.json()).matches || [];
     }
 
     // Alternativa: un solo fetch a /match que ya trae ayer+hoy+mañana del bridge
     async function fetchAllViabridge() {
-        const r = await fetch(`${API}/match?_t=${Date.now()}`, {
-            cache:'no-store',
-            signal: AbortSignal.timeout(40000)   // 40s para aguantar el cold-start de Render
-        });
+        const r = await fetch(`${API}/match?_t=${Date.now()}`, {cache:'no-store'});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         // El bridge devuelve { items: [{tournamentCalendarSlug, matches}] }
@@ -449,9 +435,10 @@
             let all = [];
             try {
                 all = await fetchAllViabridge();
-                console.log(`🌐 Datos via bridge /match (${all.length} partidos totales)`);
+                console.log(`🌐 Bridge /match OK → ${all.length} partidos (${API})`);
             } catch(bridgeErr) {
-                console.warn('⚠️ Bridge /match falló, intentando por fecha:', bridgeErr.message);
+                console.warn(`⚠️ Bridge /match falló (${API}):`, bridgeErr.message);
+                console.warn('   Intentando elnine directo (puede fallar por CORS)...');
                 const results = await Promise.allSettled([
                     fetchScheduleDate(fmt(y)),
                     fetchScheduleDate(fmt(now)),
@@ -468,25 +455,16 @@
             }
 
             // Filtrar solo partidos del Mundial
-            // Acepta cualquier slug que contenga 'world-cup' o 'mundial' para cubrir
-            // variantes como 'fifa-world-cup', 'fifa-world-cup-2026', 'world-cup-2026', etc.
-            const WC_SLUGS = ['fifa-world-cup','fifa-world-cup-2026','world-cup-2026','world-cup','mundial-2026','mundial'];
+            // Acepta cualquier slug que contenga 'world-cup' para cubrir
+            // variantes como 'fifa-world-cup', 'fifa-world-cup-2026', etc.
+            const WC_SLUGS = ['fifa-world-cup','fifa-world-cup-2026','world-cup-2026','world-cup'];
             const isWC = m => {
                 const s = (m.tournamentCalendarSlug||'').toLowerCase();
-                return WC_SLUGS.some(k=>s===k) || s.includes('world-cup') || s.includes('mundial');
+                return WC_SLUGS.some(k=>s===k) || s.includes('world-cup');
             };
-            let wc = all.filter(isWC);
-
-            // ── FALLBACK: si no hay ningún partido del Mundial, mostrar el partido
-            // más próximo/live de CUALQUIER torneo (útil durante la fase de grupos
-            // cuando el slug puede variar, o para testear el overlay).
-            const allSlugs = [...new Set(all.map(m=>m.tournamentCalendarSlug))];
-            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | Todos los slugs: ${allSlugs.join(', ')}`);
-            if(wc.length === 0 && all.length > 0) {
-                console.warn(`⚠️ Ningún partido coincide con el filtro World Cup. Slugs disponibles: ${allSlugs.join(', ')} — mostrando todos los partidos.`);
-                wc = all;  // muestra lo que haya para no quedar en blanco
-            }
-            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'} slug:${m.tournamentCalendarSlug}`));
+            const wc = all.filter(isWC);
+            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs disponibles: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
+            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
 
 
             let match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
@@ -521,21 +499,10 @@
         }
     }
 
-    // ── WAKE UP BRIDGE ───────────────────────────────────────────
-    // Render free tier "sleeps" after 15 min of inactivity. Send a /health
-    // ping first so the main fetch doesn't time-out while it wakes up.
-    async function wakeUpBridge() {
-        if(IS_LOCAL) return;
-        try {
-            await fetch(`${BRIDGE_URL}/health`, {cache:'no-store', signal: AbortSignal.timeout(35000)});
-        } catch(e) { /* ignore — bridge may still wake up before the real fetch */ }
-    }
-
     // ── INIT ─────────────────────────────────────────────────────
-    wakeUpBridge().then(() => {
-        poll();
-        setInterval(poll, CONFIG.pollIntervalMs);
-    });
+    console.log(`🚀 Overlay iniciado | API: ${API} | local: ${IS_LOCAL}`);
+    poll();
+    setInterval(poll, CONFIG.pollIntervalMs);
     </script>
 </body>
 </html>
