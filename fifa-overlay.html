@@ -117,7 +117,7 @@
     // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     // Autodetección: si estás en localhost usa el bridge local (python bridge.py → puerto 8001)
-    const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+    const IS_LOCAL = location.protocol !== 'https:';
     const API = IS_LOCAL ? 'http://localhost:8001' : BRIDGE_URL;
 
     const CONFIG = {
@@ -389,12 +389,21 @@
         const dates = arDates();
         const results = await Promise.allSettled(dates.map(d => fetchScheduleDate(d)));
         const seen = new Set(), all = [];
-        for(const r of results) {
+        let okCount = 0;
+        results.forEach((r, i) => {
             if(r.status==='fulfilled') {
+                okCount++;
                 for(const m of r.value) {
                     if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
                 }
+            } else {
+                console.warn(`⚠️ fetchScheduleDate(${dates[i]}) falló:`, r.reason);
             }
+        });
+        // Si NINGUNA fecha pudo consultarse (CORS, red, etc.), no confiar en
+        // "all=[]" como si fuera un resultado real — forzar fallback al bridge.
+        if(okCount === 0) {
+            throw new Error('fetchAllDirect: las 3 fechas fallaron (ver warnings arriba)');
         }
         return all;
     }
