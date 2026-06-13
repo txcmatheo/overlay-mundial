@@ -6,219 +6,87 @@
     <title>OBS Scoreboard Overlay - Mundial 2026</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;1,700&display=swap');
-
         * { box-sizing: border-box; }
-
         body {
-            margin: 0;
-            padding: 20px;
+            margin: 0; padding: 20px;
             background-color: transparent;
             font-family: 'Barlow Condensed', sans-serif;
             overflow: hidden;
         }
-
-        /* ── Scoreboard principal ── */
         .scoreboard {
-            display: flex;
-            align-items: center;
-            background: #000000;
-            border-radius: 12px;
-            padding: 4px 8px;
-            width: fit-content;
+            display: flex; align-items: center;
+            background: #000; border-radius: 12px;
+            padding: 4px 8px; width: fit-content;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            border: 2px solid #222;
-            position: relative;
+            border: 2px solid #222; position: relative;
         }
-
         .timer-box {
-            background-color: #ffffff;
-            color: #000000;
-            padding: 6px 16px;
-            font-size: 28px;
-            font-weight: bold;
-            border-radius: 8px;
-            min-width: 70px;
-            text-align: center;
+            background: #fff; color: #000;
+            padding: 6px 16px; font-size: 28px; font-weight: bold;
+            border-radius: 8px; min-width: 70px; text-align: center;
             box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
         }
-
-        .teams-container {
-            display: flex;
-            align-items: center;
-            padding: 0 10px;
-        }
-
-        .team {
-            display: flex;
-            align-items: center;
-            color: #ffffff;
-            font-size: 26px;
-            letter-spacing: 1px;
-        }
-
-        .flag {
-            width: 32px;
-            height: 22px;
-            object-fit: cover;
-            border-radius: 3px;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.25);
-        }
-
-        .team-name {
-            padding: 0 10px;
-            font-weight: 700;
-        }
-
+        .teams-container { display: flex; align-items: center; padding: 0 10px; }
+        .team { display: flex; align-items: center; color: #fff; font-size: 26px; letter-spacing: 1px; }
+        .flag { width: 32px; height: 22px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+        .team-name { padding: 0 10px; font-weight: 700; }
         .score-box {
-            background: #00ffcc;
-            color: #000000;
-            font-size: 28px;
-            font-weight: bold;
-            padding: 4px 14px;
-            border-radius: 6px;
-            margin: 0 8px;
-            min-width: 20px;
-            text-align: center;
+            background: #00ffcc; color: #000;
+            font-size: 28px; font-weight: bold;
+            padding: 4px 14px; border-radius: 6px;
+            margin: 0 8px; min-width: 20px; text-align: center;
         }
-
-        .logo-center {
-            height: 35px;
-            margin: 0 5px;
-            display: flex;
-            align-items: center;
-        }
-        .logo-center img {
-            height: 100%;
-            filter: drop-shadow(0px 0px 2px rgba(255,255,255,0.8));
-        }
-
-        /* ── Animación básica de gol en marcador ── */
-        .pulse {
-            animation: pulse-animation 0.4s ease-in-out;
-        }
-        @keyframes pulse-animation {
+        .logo-center { height: 35px; margin: 0 5px; display: flex; align-items: center; }
+        .logo-center img { height: 100%; filter: drop-shadow(0px 0px 2px rgba(255,255,255,0.8)); }
+        .pulse { animation: pulse-anim 0.4s ease-in-out; }
+        @keyframes pulse-anim {
             0%   { transform: scale(1); }
             40%  { transform: scale(1.25); background-color: #ff0055; color: white; }
             100% { transform: scale(1); }
         }
-
-        /* ═══════════════════════════════════════
-           PANEL DE EVENTO (GOL / TARJETA / FT / HT)
-           Se muestra debajo del scoreboard
-        ═══════════════════════════════════════ */
         #event-panel {
-            margin-top: 10px;
-            width: fit-content;
-            opacity: 0;
+            margin-top: 10px; width: fit-content; opacity: 0;
             transform: translateY(-12px) scale(0.95);
             transition: opacity 0.35s ease, transform 0.35s ease;
             pointer-events: none;
         }
-        #event-panel.visible {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-
+        #event-panel.visible { opacity: 1; transform: translateY(0) scale(1); }
         .event-card {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            border-radius: 10px;
-            padding: 8px 20px 8px 14px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
-            min-width: 260px;
+            display: flex; align-items: center; gap: 12px;
+            border-radius: 10px; padding: 8px 20px 8px 14px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6); min-width: 260px;
         }
-
-        /* GOL */
-        .event-card.goal {
-            background: linear-gradient(135deg, #00ffcc 0%, #00d4aa 100%);
-            color: #000;
-        }
-        /* TARJETA AMARILLA */
-        .event-card.yellow {
-            background: linear-gradient(135deg, #ffe600 0%, #ffc200 100%);
-            color: #000;
-        }
-        /* TARJETA ROJA */
-        .event-card.red {
-            background: linear-gradient(135deg, #ff1a1a 0%, #cc0000 100%);
-            color: #fff;
-        }
-        /* MEDIO TIEMPO */
-        .event-card.halftime {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            border: 2px solid #00ffcc;
-        }
-        /* FINAL */
-        .event-card.fulltime {
-            background: linear-gradient(135deg, #0f3460 0%, #533483 100%);
-            color: #fff;
-            border: 2px solid #ffe600;
-        }
-
-        .event-icon {
-            font-size: 36px;
-            line-height: 1;
-            flex-shrink: 0;
-        }
-
-        .event-body { display: flex; flex-direction: column; }
-        .event-title {
-            font-size: 22px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            line-height: 1.1;
-        }
-        .event-sub {
-            font-size: 16px;
-            font-weight: 400;
-            opacity: 0.85;
-            line-height: 1.2;
-        }
-
-        /* ── Brillo del scoreboard al ocurrir un evento ── */
-        .scoreboard.flash-goal  { animation: sb-goal  1s ease forwards; }
-        .scoreboard.flash-card  { animation: sb-card  0.6s ease forwards; }
-        .scoreboard.flash-ht    { animation: sb-ht    0.8s ease forwards; }
-        .scoreboard.flash-ft    { animation: sb-ft    1.2s ease forwards; }
-
-        @keyframes sb-goal {
-            0%,100% { box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-            30%      { box-shadow: 0 0 40px 10px rgba(0,255,204,0.9); }
-            60%      { box-shadow: 0 0 60px 18px rgba(0,255,204,0.5); }
-        }
-        @keyframes sb-card {
-            0%,100% { box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-            40%      { box-shadow: 0 0 35px 8px rgba(255,80,0,0.8); }
-        }
-        @keyframes sb-ht {
-            0%,100% { box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-            50%      { box-shadow: 0 0 40px 10px rgba(0,200,255,0.7); }
-        }
-        @keyframes sb-ft {
-            0%,100% { box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-            25%,75%  { box-shadow: 0 0 50px 14px rgba(255,230,0,0.85); }
-            50%      { box-shadow: 0 0 70px 22px rgba(255,230,0,0.5); }
-        }
+        .event-card.goal     { background: linear-gradient(135deg,#00ffcc,#00d4aa); color:#000; }
+        .event-card.yellow   { background: linear-gradient(135deg,#ffe600,#ffc200); color:#000; }
+        .event-card.red      { background: linear-gradient(135deg,#ff1a1a,#cc0000); color:#fff; }
+        .event-card.halftime { background: linear-gradient(135deg,#1a1a2e,#16213e); color:#fff; border:2px solid #00ffcc; }
+        .event-card.fulltime { background: linear-gradient(135deg,#0f3460,#533483); color:#fff; border:2px solid #ffe600; }
+        .event-icon  { font-size: 36px; line-height: 1; flex-shrink: 0; }
+        .event-body  { display: flex; flex-direction: column; }
+        .event-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; }
+        .event-sub   { font-size: 16px; font-weight: 400; opacity: 0.85; line-height: 1.2; }
+        .scoreboard.flash-goal { animation: sb-goal  1s ease forwards; }
+        .scoreboard.flash-card { animation: sb-card 0.6s ease forwards; }
+        .scoreboard.flash-ht   { animation: sb-ht   0.8s ease forwards; }
+        .scoreboard.flash-ft   { animation: sb-ft   1.2s ease forwards; }
+        @keyframes sb-goal { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 30%{box-shadow:0 0 40px 10px rgba(0,255,204,.9)} 60%{box-shadow:0 0 60px 18px rgba(0,255,204,.5)} }
+        @keyframes sb-card { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 40%{box-shadow:0 0 35px 8px rgba(255,80,0,.8)} }
+        @keyframes sb-ht   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 50%{box-shadow:0 0 40px 10px rgba(0,200,255,.7)} }
+        @keyframes sb-ft   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 25%,75%{box-shadow:0 0 50px 14px rgba(255,230,0,.85)} 50%{box-shadow:0 0 70px 22px rgba(255,230,0,.5)} }
     </style>
 </head>
 <body>
-
     <div class="scoreboard" id="scoreboard">
         <div class="timer-box" id="clock">--:--</div>
-
         <div class="teams-container">
             <div class="team">
                 <img class="flag" id="flag-home" src="" alt="">
                 <span class="team-name" id="name-home">---</span>
                 <div class="score-box" id="score-home">0</div>
             </div>
-
             <div class="logo-center">
                 <img src="https://cdn.elnine.com.ar/leagues/world-cup-white.webp" alt="FIFA 26">
             </div>
-
             <div class="team">
                 <div class="score-box" id="score-away">0</div>
                 <span class="team-name" id="name-away">---</span>
@@ -226,516 +94,322 @@
             </div>
         </div>
     </div>
-
-    <!-- Panel de eventos -->
     <div id="event-panel">
         <div class="event-card" id="event-card">
             <div class="event-icon" id="event-icon">⚽</div>
             <div class="event-body">
                 <div class="event-title" id="event-title">GOL</div>
-                <div class="event-sub"  id="event-sub">Jugador</div>
+                <div class="event-sub"   id="event-sub">Jugador</div>
             </div>
         </div>
     </div>
 
     <script>
-    // ════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     //  CONFIGURACIÓN
-    // ════════════════════════════════════════════════════════
-    const API_ROOT = 'https://api.elnine.com.ar';
+    //  El overlay fetchea elnine DIRECTAMENTE desde el browser del
+    //  usuario (IP residencial). NO necesita bridge ni proxy.
+    //
+    //  USO EN OBS: agregar como "Browser Source" → URL local:
+    //    file:///C:/ruta/fifa-overlay.html   (Windows)
+    //    file:///home/user/fifa-overlay.html (Linux/Mac)
+    //  O subir a GitHub Pages y abrir desde ahí si elnine lo permite.
+    // ══════════════════════════════════════════════════════════════
+    const API = 'https://api.elnine.com.ar';
 
     const CONFIG = {
-        // Si autoMatch:true el overlay elige solo el partido en curso del Mundial.
-        // Si prefieres fijar un partido concreto pon autoMatch:false y escribe su ID en matchId.
-        autoMatch: true,
-        matchId:   "",          // se llena automáticamente (o ponlo manual)
-
-        // Cada cuántos ms se consulta la API principal
-        pollIntervalMs: 5000,
-
-        // Cada cuántos ms se consultan las stats (tarjetas amarillas)
-        statsPollIntervalMs: 10000,
-
-        // Cuántos ms se muestra el panel de evento
-        eventDurationMs: 6000,
-
-        // Mostrar nombres completos o códigos de 3 letras
-        useFullNames: false
+        autoMatch:        true,
+        matchId:          '',       // se llena automático; o pon un ID manual
+        pollIntervalMs:   5000,
+        eventDurationMs:  6000,
+        useFullNames:     false,
     };
 
-    // ════════════════════════════════════════════════════════
-    //  COUNTRY MAP
-    // ════════════════════════════════════════════════════════
+    // ── COUNTRY MAP ──────────────────────────────────────────────
     const COUNTRY_MAP = {
-        "Canadá":["ca","CAN"],"Canada":["ca","CAN"],
-        "Bosnia-Herzegovina":["ba","BIH"],
-        "Estados Unidos":["us","USA"],"United States":["us","USA"],
-        "Paraguay":["py","PAR"],"México":["mx","MEX"],"Mexico":["mx","MEX"],
-        "Argentina":["ar","ARG"],"Brasil":["br","BRA"],"Brazil":["br","BRA"],
-        "Uruguay":["uy","URU"],"Colombia":["co","COL"],"Ecuador":["ec","ECU"],
-        "Chile":["cl","CHI"],"Perú":["pe","PER"],"Peru":["pe","PER"],
-        "Bolivia":["bo","BOL"],"Venezuela":["ve","VEN"],
-        "Francia":["fr","FRA"],"France":["fr","FRA"],
-        "Alemania":["de","GER"],"Germany":["de","GER"],
-        "España":["es","ESP"],"Spain":["es","ESP"],
-        "Inglaterra":["gb-eng","ENG"],"England":["gb-eng","ENG"],
-        "Portugal":["pt","POR"],"Países Bajos":["nl","NED"],"Netherlands":["nl","NED"],
-        "Bélgica":["be","BEL"],"Belgium":["be","BEL"],
-        "Italia":["it","ITA"],"Italy":["it","ITA"],
-        "Croacia":["hr","CRO"],"Croatia":["hr","CRO"],
-        "Marruecos":["ma","MAR"],"Morocco":["ma","MAR"],
-        "Japón":["jp","JPN"],"Japan":["jp","JPN"],
-        "Corea del Sur":["kr","KOR"],"South Korea":["kr","KOR"],
-        "Senegal":["sn","SEN"],"Ghana":["gh","GHA"],"Nigeria":["ng","NGA"],
-        "Camerún":["cm","CMR"],"Cameroon":["cm","CMR"],
-        "Túnez":["tn","TUN"],"Tunisia":["tn","TUN"],
-        "Egipto":["eg","EGY"],"Egypt":["eg","EGY"],
-        "Argelia":["dz","ALG"],"Algeria":["dz","ALG"],
-        "Costa de Marfil":["ci","CIV"],"Ivory Coast":["ci","CIV"],
-        "Sudáfrica":["za","RSA"],"South Africa":["za","RSA"],
-        "Arabia Saudita":["sa","KSA"],"Saudi Arabia":["sa","KSA"],
-        "Irán":["ir","IRN"],"Iran":["ir","IRN"],
-        "Catar":["qa","QAT"],"Qatar":["qa","QAT"],
-        "Australia":["au","AUS"],"Nueva Zelanda":["nz","NZL"],"New Zealand":["nz","NZL"],
-        "Polonia":["pl","POL"],"Poland":["pl","POL"],
-        "Suiza":["ch","SUI"],"Switzerland":["ch","SUI"],
-        "Dinamarca":["dk","DEN"],"Denmark":["dk","DEN"],
-        "Suecia":["se","SWE"],"Sweden":["se","SWE"],
-        "Noruega":["no","NOR"],"Norway":["no","NOR"],
-        "Austria":["at","AUT"],"Serbia":["rs","SRB"],
-        "Ucrania":["ua","UKR"],"Ukraine":["ua","UKR"],
-        "República Checa":["cz","CZE"],"Czech Republic":["cz","CZE"],
-        "Gales":["gb-wls","WAL"],"Wales":["gb-wls","WAL"],
-        "Escocia":["gb-sct","SCO"],"Scotland":["gb-sct","SCO"],
-        "Turquía":["tr","TUR"],"Turkey":["tr","TUR"],
-        "Grecia":["gr","GRE"],"Greece":["gr","GRE"],
-        "Jordania":["jo","JOR"],"Jordan":["jo","JOR"],
-        "Uzbekistán":["uz","UZB"],"Uzbekistan":["uz","UZB"],
-        "Curazao":["cw","CUW"],"Curacao":["cw","CUW"],
-        "Haití":["ht","HAI"],"Haiti":["ht","HAI"],
-        "Panamá":["pa","PAN"],"Panama":["pa","PAN"],
-        "Costa Rica":["cr","CRC"],"Jamaica":["jm","JAM"],"Honduras":["hn","HON"],
-        "Nueva Caledonia":["nc","NCL"],"New Caledonia":["nc","NCL"]
+        'Canadá':['ca','CAN'],'Canada':['ca','CAN'],
+        'Bosnia-Herzegovina':['ba','BIH'],
+        'Estados Unidos':['us','USA'],'United States':['us','USA'],
+        'Paraguay':['py','PAR'],'México':['mx','MEX'],'Mexico':['mx','MEX'],
+        'Argentina':['ar','ARG'],'Brasil':['br','BRA'],'Brazil':['br','BRA'],
+        'Uruguay':['uy','URU'],'Colombia':['co','COL'],'Ecuador':['ec','ECU'],
+        'Chile':['cl','CHI'],'Perú':['pe','PER'],'Peru':['pe','PER'],
+        'Bolivia':['bo','BOL'],'Venezuela':['ve','VEN'],
+        'Francia':['fr','FRA'],'France':['fr','FRA'],
+        'Alemania':['de','GER'],'Germany':['de','GER'],
+        'España':['es','ESP'],'Spain':['es','ESP'],
+        'Inglaterra':['gb-eng','ENG'],'England':['gb-eng','ENG'],
+        'Portugal':['pt','POR'],'Países Bajos':['nl','NED'],'Netherlands':['nl','NED'],
+        'Bélgica':['be','BEL'],'Belgium':['be','BEL'],
+        'Italia':['it','ITA'],'Italy':['it','ITA'],
+        'Croacia':['hr','CRO'],'Croatia':['hr','CRO'],
+        'Marruecos':['ma','MAR'],'Morocco':['ma','MAR'],
+        'Japón':['jp','JPN'],'Japan':['jp','JPN'],
+        'Corea del Sur':['kr','KOR'],'South Korea':['kr','KOR'],
+        'Senegal':['sn','SEN'],'Ghana':['gh','GHA'],'Nigeria':['ng','NGA'],
+        'Camerún':['cm','CMR'],'Cameroon':['cm','CMR'],
+        'Túnez':['tn','TUN'],'Tunisia':['tn','TUN'],
+        'Egipto':['eg','EGY'],'Egypt':['eg','EGY'],
+        'Argelia':['dz','ALG'],'Algeria':['dz','ALG'],
+        'Costa de Marfil':['ci','CIV'],'Ivory Coast':['ci','CIV'],
+        'Sudáfrica':['za','RSA'],'South Africa':['za','RSA'],
+        'Arabia Saudita':['sa','KSA'],'Saudi Arabia':['sa','KSA'],
+        'Irán':['ir','IRN'],'Iran':['ir','IRN'],
+        'Catar':['qa','QAT'],'Qatar':['qa','QAT'],
+        'Australia':['au','AUS'],'Nueva Zelanda':['nz','NZL'],'New Zealand':['nz','NZL'],
+        'Polonia':['pl','POL'],'Poland':['pl','POL'],
+        'Suiza':['ch','SUI'],'Switzerland':['ch','SUI'],
+        'Dinamarca':['dk','DEN'],'Denmark':['dk','DEN'],
+        'Suecia':['se','SWE'],'Sweden':['se','SWE'],
+        'Noruega':['no','NOR'],'Norway':['no','NOR'],
+        'Austria':['at','AUT'],'Serbia':['rs','SRB'],
+        'Ucrania':['ua','UKR'],'Ukraine':['ua','UKR'],
+        'República Checa':['cz','CZE'],'Czech Republic':['cz','CZE'],
+        'Gales':['gb-wls','WAL'],'Wales':['gb-wls','WAL'],
+        'Escocia':['gb-sct','SCO'],'Scotland':['gb-sct','SCO'],
+        'Turquía':['tr','TUR'],'Turkey':['tr','TUR'],
+        'Grecia':['gr','GRE'],'Greece':['gr','GRE'],
+        'Panamá':['pa','PAN'],'Panama':['pa','PAN'],
+        'Costa Rica':['cr','CRC'],'Jamaica':['jm','JAM'],'Honduras':['hn','HON'],
+        'Haití':['ht','HAI'],'Jordania':['jo','JOR'],'Uzbekistán':['uz','UZB'],
+        'Curazao':['cw','CUW'],'Nueva Caledonia':['nc','NCL'],
     };
+    const flagInfo = name => COUNTRY_MAP[name] || [null, name.substring(0,3).toUpperCase()];
+    const setFlag  = (el, iso) => { if(iso){el.src=`https://flagcdn.com/w80/${iso}.png`;el.style.visibility='visible';}else{el.style.visibility='hidden';} };
 
-    function flagInfo(name) {
-        return COUNTRY_MAP[name] || [null, name.substring(0,3).toUpperCase()];
+    // ── AUDIO ────────────────────────────────────────────────────
+    let _actx = null;
+    const actx = () => _actx || (_actx = new (window.AudioContext||window.webkitAudioContext)());
+    function tone(freq, type, dur, vol, delay=0) {
+        const c=actx(), o=c.createOscillator(), g=c.createGain();
+        o.connect(g); g.connect(c.destination);
+        o.type=type; o.frequency.setValueAtTime(freq, c.currentTime+delay);
+        g.gain.setValueAtTime(vol, c.currentTime+delay);
+        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime+delay+dur);
+        o.start(c.currentTime+delay); o.stop(c.currentTime+delay+dur+0.05);
     }
-    function setFlag(imgEl, iso2) {
-        if (iso2) { imgEl.src = `https://flagcdn.com/w80/${iso2}.png`; imgEl.style.visibility = "visible"; }
-        else       { imgEl.style.visibility = "hidden"; }
-    }
-
-    // ════════════════════════════════════════════════════════
-    //  AUDIO — sintetizado con Web Audio API (sin archivos externos)
-    // ════════════════════════════════════════════════════════
-    let audioCtx = null;
-    function getAudioCtx() {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        return audioCtx;
-    }
-
-    function playTone(freq, type, duration, gainVal, startDelay = 0) {
-        const ctx = getAudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.type = type;
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + startDelay);
-        gain.gain.setValueAtTime(gainVal, ctx.currentTime + startDelay);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startDelay + duration);
-        osc.start(ctx.currentTime + startDelay);
-        osc.stop(ctx.currentTime + startDelay + duration + 0.05);
-    }
-
-    const SOUNDS = {
+    const SFX = {
         goal() {
-            const notes = [523, 659, 784, 1047, 784, 1047, 1319];
-            notes.forEach((f, i) => playTone(f, 'square', 0.18, 0.18, i * 0.13));
-            [130, 196, 261].forEach((f, i) => playTone(f, 'triangle', 0.35, 0.12, i * 0.18));
+            [523,659,784,1047,784,1047,1319].forEach((f,i)=>tone(f,'square',0.18,0.18,i*0.13));
+            [130,196,261].forEach((f,i)=>tone(f,'triangle',0.35,0.12,i*0.18));
             try {
-                const ctx = getAudioCtx();
-                const bufLen = ctx.sampleRate * 1.5;
-                const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-                const data = buf.getChannelData(0);
-                for (let j = 0; j < bufLen; j++) data[j] = (Math.random() * 2 - 1) * 0.06;
-                const src = ctx.createBufferSource();
-                src.buffer = buf;
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'bandpass'; filter.frequency.value = 900; filter.Q.value = 0.8;
-                const gainN = ctx.createGain();
-                gainN.gain.setValueAtTime(1, ctx.currentTime + 0.8);
-                gainN.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.2);
-                src.connect(filter); filter.connect(gainN); gainN.connect(ctx.destination);
-                src.start(ctx.currentTime + 0.8);
-            } catch(e) {}
+                const c=actx(), n=c.sampleRate*1.5, b=c.createBuffer(1,n,c.sampleRate);
+                const d=b.getChannelData(0); for(let j=0;j<n;j++) d[j]=(Math.random()*2-1)*0.06;
+                const s=c.createBufferSource(); s.buffer=b;
+                const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=900; f.Q.value=0.8;
+                const g=c.createGain(); g.gain.setValueAtTime(1,c.currentTime+0.8); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+2.2);
+                s.connect(f); f.connect(g); g.connect(c.destination); s.start(c.currentTime+0.8);
+            } catch(e){}
         },
-        yellowCard() {
-            playTone(2200, 'sine', 0.12, 0.3);
-            playTone(2400, 'sine', 0.10, 0.25, 0.14);
-            playTone(2200, 'sine', 0.15, 0.2,  0.26);
-        },
-        redCard() {
-            playTone(2300, 'sine', 0.5,  0.35);
-            playTone(110,  'sawtooth', 0.4, 0.15, 0.55);
-            playTone(90,   'sawtooth', 0.4, 0.12, 0.7);
-        },
-        halfTime() {
-            [0, 0.22, 0.44].forEach(d => playTone(2100, 'sine', 0.15, 0.3, d));
-        },
-        fullTime() {
-            playTone(2100, 'sine', 0.8, 0.35);
-            [784, 698, 659, 587, 523].forEach((f, i) => playTone(f, 'square', 0.2, 0.14, 0.9 + i * 0.15));
-        }
+        yellowCard() { tone(2200,'sine',0.12,0.3); tone(2400,'sine',0.10,0.25,0.14); tone(2200,'sine',0.15,0.2,0.26); },
+        redCard()    { tone(2300,'sine',0.5,0.35); tone(110,'sawtooth',0.4,0.15,0.55); tone(90,'sawtooth',0.4,0.12,0.7); },
+        halfTime()   { [0,0.22,0.44].forEach(d=>tone(2100,'sine',0.15,0.3,d)); },
+        fullTime()   { tone(2100,'sine',0.8,0.35); [784,698,659,587,523].forEach((f,i)=>tone(f,'square',0.2,0.14,0.9+i*0.15)); },
     };
 
-    // ════════════════════════════════════════════════════════
-    //  PANEL DE EVENTOS
-    // ════════════════════════════════════════════════════════
-    let eventTimer = null;
-    const panel      = document.getElementById('event-panel');
-    const eCard      = document.getElementById('event-card');
-    const eIcon      = document.getElementById('event-icon');
-    const eTitle     = document.getElementById('event-title');
-    const eSub       = document.getElementById('event-sub');
-    const scoreboard = document.getElementById('scoreboard');
+    // ── UI REFS ──────────────────────────────────────────────────
+    const $  = id => document.getElementById(id);
+    const sb = $('scoreboard');
+    const ui = { clock:$('clock'), nameHome:$('name-home'), nameAway:$('name-away'),
+                 scoreHome:$('score-home'), scoreAway:$('score-away'),
+                 flagHome:$('flag-home'), flagAway:$('flag-away') };
 
-    function showEvent({ type, icon, title, sub, soundFn, flashClass }) {
-        if (eventTimer) clearTimeout(eventTimer);
-        scoreboard.className = 'scoreboard';
-        void scoreboard.offsetWidth;
-        if (flashClass) scoreboard.classList.add(flashClass);
-        if (soundFn) { try { soundFn(); } catch(e) { console.warn('Audio:', e); } }
-        eCard.className    = `event-card ${type}`;
-        eIcon.textContent  = icon;
-        eTitle.textContent = title;
-        eSub.textContent   = sub || '';
-        panel.classList.remove('visible');
-        void panel.offsetWidth;
-        panel.classList.add('visible');
-        eventTimer = setTimeout(() => {
-            panel.classList.remove('visible');
-            scoreboard.classList.remove(flashClass);
-        }, CONFIG.eventDurationMs);
+    function pulse(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'),500); }
+
+    let evTimer = null;
+    function showEvent({type,icon,title,sub,sfx,flash}) {
+        if(evTimer) clearTimeout(evTimer);
+        sb.className='scoreboard'; void sb.offsetWidth; if(flash) sb.classList.add(flash);
+        try { if(sfx) sfx(); } catch(e){}
+        $('event-card').className=`event-card ${type}`;
+        $('event-icon').textContent=icon; $('event-title').textContent=title; $('event-sub').textContent=sub||'';
+        const p=$('event-panel'); p.classList.remove('visible'); void p.offsetWidth; p.classList.add('visible');
+        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); }, CONFIG.eventDurationMs);
     }
 
-    // ════════════════════════════════════════════════════════
-    //  ESTADO
-    // ════════════════════════════════════════════════════════
-    const fired = {
-        goalKeys:   new Set(),
-        yellowHome: 0, yellowAway: 0,
-        redHome:    0, redAway:    0,
-        halfTime:   false, fullTime: false,
-    };
+    // ── ESTADO ───────────────────────────────────────────────────
+    const fired = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+    let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
+    let prevYH=0, prevYA=0;   // tarjetas amarillas del poll anterior
 
-    let matchState = {
-        homeName: '---', awayName: '---',
-        homeId: '', awayId: '',
-        initialized: false,
-    };
+    // ── EVENTOS ──────────────────────────────────────────────────
+    function checkEvents(m) {
+        if(!state.ready) return;
+        const {homeName:hn, awayName:an, homeId:hid} = state;
 
-    // ════════════════════════════════════════════════════════
-    //  LÓGICA DE EVENTOS
-    // ════════════════════════════════════════════════════════
-    function checkEvents(match, yellowHome, yellowAway) {
-        if (!matchState.initialized) return;
-        const { homeName, awayName, homeId, awayId } = matchState;
-
-        (match.goals || []).forEach(g => {
-            const key = `${g.contestantId}-${g.timeMin}-${g.periodId}`;
-            if (!fired.goalKeys.has(key)) {
+        // Goles (vienen en match.goals[] del schedule)
+        (m.goals||[]).forEach(g => {
+            const key=`${g.contestantId}-${g.timeMin}-${g.periodId}`;
+            if(!fired.goalKeys.has(key)) {
                 fired.goalKeys.add(key);
-                const isHome   = g.contestantId === homeId;
-                const teamName = isHome ? homeName : awayName;
-                showEvent({
-                    type: 'goal', icon: '⚽',
-                    title: `¡GOL! ${teamName}`,
-                    sub:   `${g.scorerName}${g.timeMin ? ' — ' + g.timeMin + "'" : ''}${g.assistPlayerName ? '  (Ast: ' + g.assistPlayerName + ')' : ''}`,
-                    soundFn: SOUNDS.goal, flashClass: 'flash-goal'
-                });
+                const team = g.contestantId===hid ? hn : an;
+                showEvent({ type:'goal', icon:'⚽',
+                    title:`¡GOL! ${team}`,
+                    sub:`${g.scorerName||''}${g.timeMin?' — '+g.timeMin+"'":''}${g.assistPlayerName?' (Ast: '+g.assistPlayerName+')':''}`,
+                    sfx:SFX.goal, flash:'flash-goal' });
             }
         });
 
-        const rHome = match.homeTeamRedCards || 0;
-        const rAway = match.awayTeamRedCards || 0;
-        if (rHome > fired.redHome) {
-            fired.redHome = rHome;
-            showEvent({ type:'red', icon:'🟥', title:'TARJETA ROJA', sub: homeName, soundFn: SOUNDS.redCard, flashClass:'flash-card' });
-        }
-        if (rAway > fired.redAway) {
-            fired.redAway = rAway;
-            showEvent({ type:'red', icon:'🟥', title:'TARJETA ROJA', sub: awayName, soundFn: SOUNDS.redCard, flashClass:'flash-card' });
+        // Tarjetas rojas (en el schedule: homeTeamRedCards / awayTeamRedCards)
+        const rH=m.homeTeamRedCards||0, rA=m.awayTeamRedCards||0;
+        if(rH>fired.rH){ fired.rH=rH; showEvent({type:'red',icon:'🟥',title:'TARJETA ROJA',sub:hn,sfx:SFX.redCard,flash:'flash-card'}); }
+        if(rA>fired.rA){ fired.rA=rA; showEvent({type:'red',icon:'🟥',title:'TARJETA ROJA',sub:an,sfx:SFX.redCard,flash:'flash-card'}); }
+
+        // Tarjetas amarillas — NO están en el schedule, las trackeamos por
+        // el endpoint /match/:id que sí devuelve stats. Si ese endpoint falla
+        // (lo bloquea elnine server-side), simplemente no se disparan.
+        if(prevYH>fired.yH){ fired.yH=prevYH; showEvent({type:'yellow',icon:'🟨',title:'TARJETA AMARILLA',sub:hn,sfx:SFX.yellowCard,flash:'flash-card'}); }
+        if(prevYA>fired.yA){ fired.yA=prevYA; showEvent({type:'yellow',icon:'🟨',title:'TARJETA AMARILLA',sub:an,sfx:SFX.yellowCard,flash:'flash-card'}); }
+
+        // Medio tiempo
+        if(!fired.ht && (m.period==='HT'||(m.status==='live'&&m.period==='2T'&&m.minute!=null&&m.minute<3))) {
+            fired.ht=true;
+            showEvent({type:'halftime',icon:'⏸️',title:'MEDIO TIEMPO',sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,sfx:SFX.halfTime,flash:'flash-ht'});
         }
 
-        if (yellowHome > fired.yellowHome) {
-            fired.yellowHome = yellowHome;
-            showEvent({ type:'yellow', icon:'🟨', title:'TARJETA AMARILLA', sub: homeName, soundFn: SOUNDS.yellowCard, flashClass:'flash-card' });
-        }
-        if (yellowAway > fired.yellowAway) {
-            fired.yellowAway = yellowAway;
-            showEvent({ type:'yellow', icon:'🟨', title:'TARJETA AMARILLA', sub: awayName, soundFn: SOUNDS.yellowCard, flashClass:'flash-card' });
-        }
-
-        if (!fired.halfTime && (match.period === 'HT' || (match.status === 'live' && match.period === '2T' && match.minute != null && match.minute < 3))) {
-            fired.halfTime = true;
-            showEvent({ type:'halftime', icon:'⏸️', title:'MEDIO TIEMPO', sub:`${homeName} ${match.homeScore ?? 0} — ${match.awayScore ?? 0} ${awayName}`, soundFn: SOUNDS.halfTime, flashClass:'flash-ht' });
-        }
-
-        if (!fired.fullTime && match.status === 'finished') {
-            fired.fullTime = true;
-            showEvent({ type:'fulltime', icon:'🏁', title:'FIN DEL PARTIDO', sub:`${homeName} ${match.homeScore ?? 0} — ${match.awayScore ?? 0} ${awayName}`, soundFn: SOUNDS.fullTime, flashClass:'flash-ft' });
+        // Final
+        if(!fired.ft && m.status==='finished') {
+            fired.ft=true;
+            showEvent({type:'fulltime',icon:'🏁',title:'FIN DEL PARTIDO',sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,sfx:SFX.fullTime,flash:'flash-ft'});
         }
     }
 
-    // ════════════════════════════════════════════════════════
-    //  SCOREBOARD UI
-    // ════════════════════════════════════════════════════════
-    const els = {
-        clock:     document.getElementById('clock'),
-        nameHome:  document.getElementById('name-home'),
-        nameAway:  document.getElementById('name-away'),
-        scoreHome: document.getElementById('score-home'),
-        scoreAway: document.getElementById('score-away'),
-        flagHome:  document.getElementById('flag-home'),
-        flagAway:  document.getElementById('flag-away'),
-    };
-
-    function pulseScore(el) {
-        el.classList.remove('pulse');
-        void el.offsetWidth;
-        el.classList.add('pulse');
-        setTimeout(() => el.classList.remove('pulse'), 500);
+    // ── SCOREBOARD UI ────────────────────────────────────────────
+    function formatClock(m) {
+        if(m.status==='live')      return m.period==='HT' ? 'MT' : m.minute!=null ? `${m.minute}'` : 'EN VIVO';
+        if(m.status==='finished')  return 'FT';
+        if(m.status==='postponed') return 'SUSP';
+        return new Date(m.startTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     }
 
-    function formatClock(match) {
-        switch (match.status) {
-            case 'live':
-                if (match.period === 'HT') return 'MT';
-                if (match.minute != null)   return `${match.minute}'`;
-                return 'EN VIVO';
-            case 'finished':  return 'FT';
-            case 'postponed': return 'SUSP';
-            default: {
-                const dt = new Date(match.startTime);
-                return dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-            }
-        }
+    function renderMatch(m) {
+        const [hIso,hCode] = flagInfo(m.homeTeam.name);
+        const [aIso,aCode] = flagInfo(m.awayTeam.name);
+        const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
+        const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
+
+        ui.nameHome.textContent = hn;
+        ui.nameAway.textContent = an;
+        setFlag(ui.flagHome, hIso);
+        setFlag(ui.flagAway, aIso);
+
+        const clk = formatClock(m);
+        if(ui.clock.textContent!==clk) ui.clock.textContent=clk;
+
+        const hs=String(m.homeScore??0), as=String(m.awayScore??0);
+        if(ui.scoreHome.textContent!==hs){ ui.scoreHome.textContent=hs; if(state.ready) pulse(ui.scoreHome); }
+        if(ui.scoreAway.textContent!==as){ ui.scoreAway.textContent=as; if(state.ready) pulse(ui.scoreAway); }
+
+        state.homeName=hn; state.awayName=an;
+        state.homeId=m.homeTeam.id; state.awayId=m.awayTeam.id;
     }
 
-    function updateScoreboard(match) {
-        const homeName = CONFIG.useFullNames ? match.homeTeam.name : flagInfo(match.homeTeam.name)[1];
-        const awayName = CONFIG.useFullNames ? match.awayTeam.name : flagInfo(match.awayTeam.name)[1];
-
-        els.nameHome.textContent = homeName;
-        els.nameAway.textContent = awayName;
-        setFlag(els.flagHome, flagInfo(match.homeTeam.name)[0]);
-        setFlag(els.flagAway, flagInfo(match.awayTeam.name)[0]);
-
-        const clk = formatClock(match);
-        if (els.clock.textContent !== clk) els.clock.textContent = clk;
-
-        const hs = String(match.homeScore ?? 0);
-        const as = String(match.awayScore ?? 0);
-
-        if (els.scoreHome.textContent !== hs) {
-            els.scoreHome.textContent = hs;
-            if (matchState.initialized) pulseScore(els.scoreHome);
-        }
-        if (els.scoreAway.textContent !== as) {
-            els.scoreAway.textContent = as;
-            if (matchState.initialized) pulseScore(els.scoreAway);
-        }
-
-        matchState.homeName = homeName;
-        matchState.awayName = awayName;
-        matchState.homeId   = match.homeTeam.id;
-        matchState.awayId   = match.awayTeam.id;
-    }
-
-    // ════════════════════════════════════════════════════════
-    //  FETCHERS — directo a api.elnine.com.ar desde el browser
-    // ════════════════════════════════════════════════════════
-    let lastYellowHome = 0;
-    let lastYellowAway = 0;
-
-    // Descarga el schedule de una fecha y retorna el array de matches
-    async function _fetchScheduleDate(dateStr) {
-        const url = `${API_ROOT}/schedule?date=${dateStr}&_t=${Date.now()}`;
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`schedule ${dateStr} → HTTP ${res.status}`);
-        const data = await res.json();
-        return data.matches || [];
-    }
-
-    // Reune partidos de ayer/hoy/mañana (UTC) y los agrupa por slug
-    async function _fetchAllMatches() {
-        const now = new Date();
-        const fmt = d => d.toISOString().slice(0, 10);
-        const yesterday = new Date(now); yesterday.setUTCDate(now.getUTCDate() - 1);
-        const tomorrow  = new Date(now); tomorrow.setUTCDate(now.getUTCDate() + 1);
-
-        const seen = new Set(), allMatches = [];
-        for (const d of [fmt(yesterday), fmt(now), fmt(tomorrow)]) {
-            try {
-                const ms = await _fetchScheduleDate(d);
-                for (const m of ms) {
-                    if (!seen.has(m.id)) { seen.add(m.id); allMatches.push(m); }
-                }
-            } catch(e) {
-                console.warn('schedule fetch error:', e.message);
-            }
-        }
-
-        const groups = {};
-        for (const m of allMatches) {
-            const slug = m.tournamentCalendarSlug || 'unknown';
-            (groups[slug] = groups[slug] || []).push(m);
-        }
-        return Object.entries(groups).map(([slug, matches]) => ({ tournamentCalendarSlug: slug, matches }));
-    }
-
-    // Stats de tarjetas amarillas para el partido activo
-    async function fetchStats(matchId) {
-        if (!matchId) return;
-        try {
-            const res = await fetch(`${API_ROOT}/match/${matchId}/stats?_t=${Date.now()}`, { cache: 'no-store' });
-            if (!res.ok) return;
-            const data = await res.json();
-            const stats = data.stats || [];
-            const row = stats.find(s => s.label === 'Tarjetas amarillas');
-            if (row) {
-                lastYellowHome = Number(row.home) || 0;
-                lastYellowAway = Number(row.away) || 0;
-            }
-        } catch(e) { /* silencioso */ }
-    }
-
-    // ════════════════════════════════════════════════════════
-    //  SELECCIÓN AUTOMÁTICA DE PARTIDO
-    //  Prioridad: EN VIVO > recién iniciado > PRÓXIMO > último TERMINADO
-    // ════════════════════════════════════════════════════════
-    function pickBestMatch(items) {
-        const wc = [];
-        for (const item of items) {
-            if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
-            for (const m of (item.matches || [])) wc.push(m);
-        }
-        if (!wc.length) return null;
-
+    // ── FETCH SCHEDULE → extraer partido del Mundial ─────────────
+    //
+    //  FLUJO:
+    //  1. GET /schedule?date={ayer,hoy,mañana}  → array de matches
+    //  2. Filtrar tournamentCalendarSlug === 'fifa-world-cup'
+    //  3. Elegir el mejor (live > recién iniciado > próximo > último terminado)
+    //  4. Todos los datos (score, minute, goals, red cards) vienen del schedule
+    //  5. Opcionalmente GET /match/:id para amarillas (puede fallar, no crítico)
+    //
+    function pickBest(matches) {
         const now = Date.now();
-
-        // 1) Partido en vivo
-        const live = wc.filter(m => m.status === 'live');
-        if (live.length) {
-            live.sort((a, b) => (b.minute ?? 0) - (a.minute ?? 0));
-            return live[0];
-        }
-
-        // 2) Partido cuyo startTime ya pasó pero la API aún no lo marca como live (ventana 2h)
-        const pending = wc
-            .filter(m => m.status !== 'finished' && m.status !== 'postponed')
-            .map(m => ({ m, t: new Date(m.startTime).getTime() }))
-            .filter(({ t }) => !isNaN(t) && t <= now && (now - t) <= 2 * 60 * 60 * 1000);
-        if (pending.length) {
-            pending.sort((a, b) => b.t - a.t);
-            return pending[0].m;
-        }
-
-        // 3) Próximo partido futuro
-        const upcoming = wc
-            .filter(m => m.status !== 'finished' && m.status !== 'postponed')
-            .map(m => ({ m, t: new Date(m.startTime).getTime() }))
-            .filter(({ t }) => !isNaN(t) && t > now);
-        if (upcoming.length) {
-            upcoming.sort((a, b) => a.t - b.t);
-            return upcoming[0].m;
-        }
-
-        // 4) Último partido terminado (fallback)
-        const finished = wc
-            .filter(m => m.status === 'finished')
-            .map(m => ({ m, t: new Date(m.startTime).getTime() }))
-            .filter(({ t }) => !isNaN(t));
-        if (finished.length) {
-            finished.sort((a, b) => b.t - a.t);
-            return finished[0].m;
-        }
-
+        const live = matches.filter(m=>m.status==='live');
+        if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live[0]; }
+        const pending = matches
+            .filter(m=>m.status!=='finished'&&m.status!=='postponed')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t)&&t<=now&&(now-t)<=2*60*60*1000);
+        if(pending.length){ pending.sort((a,b)=>b.t-a.t); return pending[0].m; }
+        const upcoming = matches
+            .filter(m=>m.status!=='finished'&&m.status!=='postponed')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t)&&t>now);
+        if(upcoming.length){ upcoming.sort((a,b)=>a.t-b.t); return upcoming[0].m; }
+        const finished = matches
+            .filter(m=>m.status==='finished')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t));
+        if(finished.length){ finished.sort((a,b)=>b.t-a.t); return finished[0].m; }
         return null;
     }
 
-    // ════════════════════════════════════════════════════════
-    //  FETCH PRINCIPAL
-    // ════════════════════════════════════════════════════════
-    async function fetchMatch() {
+    async function fetchScheduleDate(dateStr) {
+        const r = await fetch(`${API}/schedule?date=${dateStr}&_t=${Date.now()}`, {cache:'no-store'});
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()).matches || [];
+    }
+
+    async function fetchYellowCards(matchId) {
+        // Este endpoint puede estar bloqueado; si falla, simplemente no mostramos amarillas.
         try {
-            const items = await _fetchAllMatches();
+            const r = await fetch(`${API}/match/${matchId}/stats?_t=${Date.now()}`, {cache:'no-store'});
+            if(!r.ok) return;
+            const data = await r.json();
+            const row = (data.stats||[]).find(s=>s.label==='Tarjetas amarillas');
+            if(row){ prevYH=Number(row.home)||0; prevYA=Number(row.away)||0; }
+        } catch(e){ /* silencioso — no crítico */ }
+    }
 
-            // Debug: mostrar slugs y partidos del Mundial
-            const wcItems = items.filter(i => i.tournamentCalendarSlug === 'fifa-world-cup');
-            const allWC   = wcItems.flatMap(i => i.matches || []);
-            const now     = Date.now();
-            console.log('⏱', new Date(now).toISOString(),
-                '| slugs:', items.map(i => `${i.tournamentCalendarSlug}(${i.matches.length})`).join(', '));
-            allWC.forEach(m => {
-                const t = new Date(m.startTime).getTime();
-                console.log(`  [${m.status}] ${m.homeTeam?.name} vs ${m.awayTeam?.name} | start=${m.startTime} | diff=${Math.round((t-now)/60000)}min`);
-            });
+    async function poll() {
+        try {
+            const now = new Date();
+            const fmt = d => d.toISOString().slice(0,10);
+            const y = new Date(now); y.setUTCDate(now.getUTCDate()-1);
+            const t = new Date(now); t.setUTCDate(now.getUTCDate()+1);
 
-            let match = null;
+            // Fetch las 3 fechas en paralelo
+            const results = await Promise.allSettled([
+                fetchScheduleDate(fmt(y)),
+                fetchScheduleDate(fmt(now)),
+                fetchScheduleDate(fmt(t)),
+            ]);
 
-            if (CONFIG.autoMatch) {
-                match = pickBestMatch(items);
-                console.log('✅ partido elegido:', match ? `${match.homeTeam?.name} vs ${match.awayTeam?.name}` : 'null');
-                if (!match) { console.warn('No se encontró partido FIFA World Cup'); return; }
-
-                if (match.id !== CONFIG.matchId) {
-                    console.info(`🔄 Partido → ${match.id} (${match.homeTeam?.name} vs ${match.awayTeam?.name})`);
-                    CONFIG.matchId = match.id;
-                    fired.goalKeys.clear();
-                    fired.yellowHome = 0; fired.yellowAway = 0;
-                    fired.redHome    = 0; fired.redAway    = 0;
-                    fired.halfTime   = false; fired.fullTime = false;
-                    lastYellowHome   = 0; lastYellowAway  = 0;
-                    matchState.initialized = false;
-                    await fetchStats(match.id);
-                    fired.yellowHome = lastYellowHome;
-                    fired.yellowAway = lastYellowAway;
+            const seen = new Set(), all = [];
+            for(const r of results) {
+                if(r.status==='fulfilled') {
+                    for(const m of r.value) {
+                        if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+                    }
                 }
-            } else {
-                // Modo manual: matchId fijo
-                for (const item of items) {
-                    if (item.tournamentCalendarSlug !== 'fifa-world-cup') continue;
-                    const found = (item.matches || []).find(m => m.id === CONFIG.matchId);
-                    if (found) { match = found; break; }
-                }
-                if (!match) { console.warn('Partido no encontrado o no es FIFA World Cup'); return; }
             }
 
-            updateScoreboard(match);
-            checkEvents(match, lastYellowHome, lastYellowAway);
-            if (!matchState.initialized) matchState.initialized = true;
+            // Filtrar solo partidos del Mundial
+            const wc = all.filter(m=>m.tournamentCalendarSlug==='fifa-world-cup');
+            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs disponibles: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
+            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
+
+            const match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
+
+            if(!match){ console.warn('⚠️ No hay partido del Mundial'); return; }
+
+            // Si cambió el partido, resetear estado
+            if(match.id !== CONFIG.matchId) {
+                console.info(`🔄 Nuevo partido: ${match.homeTeam.name} vs ${match.awayTeam.name} (${match.id})`);
+                CONFIG.matchId = match.id;
+                fired.goalKeys.clear();
+                fired.yH=0; fired.yA=0; fired.rH=0; fired.rA=0;
+                fired.ht=false; fired.ft=false;
+                prevYH=0; prevYA=0;
+                state.ready=false;
+            }
+
+            renderMatch(match);
+            checkEvents(match);
+            if(!state.ready) state.ready=true;
+
+            // Amarillas en paralelo (no bloqueante)
+            fetchYellowCards(match.id);
 
         } catch(err) {
-            console.error('Error fetchMatch:', err);
+            console.error('❌ poll error:', err);
         }
     }
 
-    // ════════════════════════════════════════════════════════
-    //  INICIO
-    // ════════════════════════════════════════════════════════
-    async function init() {
-        await fetchMatch();
-        if (CONFIG.matchId) {
-            await fetchStats(CONFIG.matchId);
-            fired.yellowHome = lastYellowHome;
-            fired.yellowAway = lastYellowAway;
-        }
-        setInterval(fetchMatch, CONFIG.pollIntervalMs);
-        setInterval(() => { if (CONFIG.matchId) fetchStats(CONFIG.matchId); }, CONFIG.statsPollIntervalMs);
-    }
-    init();
+    // ── INIT ─────────────────────────────────────────────────────
+    poll();
+    setInterval(poll, CONFIG.pollIntervalMs);
     </script>
 </body>
 </html>
