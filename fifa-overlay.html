@@ -347,14 +347,31 @@
     // Usa m._events[] poblado por enrichLiveMatch desde /detail/:id
     // Estructura real: {minute, type:"goal"|"goal-own"|"yellow"|"red",
     //                   team:"home"|"away", playerName, playerNameFull, assist, assistFull}
+
     function checkEvents(m) {
         if(!state.ready) return;
         const {homeName:hn, awayName:an} = state;
+
+        // Minuto actual del partido
+        const currentMinute = m.minute ?? null;
 
         (m._events||[]).forEach(ev => {
             const key = `${ev.type}-${ev.team}-${ev.minute}-${ev.addedMinute||0}-${ev.playerName||''}`;
             if(fired.goalKeys.has(key)) return;
             fired.goalKeys.add(key);
+
+            // Validar que el evento ocurrió cerca del minuto actual.
+            // Si el evento es más de 2 minutos anterior al minuto actual del partido,
+            // significa que ya había pasado antes de esta sesión → ignorar.
+            // Margen de +2 para cubrir el lag de la API (el evento puede llegar
+            // 1-2 polls después de que realmente ocurrió).
+            if(currentMinute != null && ev.minute != null) {
+                const diff = currentMinute - ev.minute;
+                if(diff > 2) {
+                    console.log(`⏩ Evento ignorado (min ${ev.minute} vs actual ${currentMinute}): ${key}`);
+                    return;
+                }
+            }
 
             const teamName  = ev.team==='home' ? hn : an;
             const opponent  = ev.team==='home' ? an : hn;
@@ -681,8 +698,8 @@
             }
 
             renderMatch(match);
+            if(!state.ready) state.ready = true;
             checkEvents(match);
-            if(!state.ready) state.ready=true;
 
             // Amarillas en paralelo (no bloqueante)
             if(match.status==='live') fetchYellowCards(match.id);
