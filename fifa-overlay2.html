@@ -267,6 +267,8 @@
         'Kuwait':['kw','KUW'],'Irak':['iq','IRQ'],
         'Guatemala':['gt','GUA'],'El Salvador':['sv','SLV'],
         'Cuba':['cu','CUB'],'Trinidad y Tobago':['tt','TRI'],'Trinidad and Tobago':['tt','TRI'],
+        'RD Congo':['cd','COD'],'República Democrática del Congo':['cd','COD'],
+        'DR Congo':['cd','COD'],'Congo DR':['cd','COD'],'Congo, DR':['cd','COD'],
     };
     const flagInfo = name => COUNTRY_MAP[name] || [null, name.substring(0,3).toUpperCase()];
     const setFlag  = (el, iso) => { if(iso){el.src=`https://flagcdn.com/w80/${iso}.png`;el.style.visibility='visible';}else{el.style.visibility='hidden';} };
@@ -308,6 +310,7 @@
         bh:['#CE1126','#FFFFFF'], kw:['#007A3D','#CE1126'],
         gt:['#4997D0','#FFFFFF'], sv:['#0F47AF','#FFFFFF'],
         cu:['#002A8F','#CC0001'], tt:['#CE1126','#000000'],
+        cd:['#007FFF','#F7D618'],
     };
     const flagAccents = iso => FLAG_COLORS[iso] || ['#00ffc8','#ffffff'];
     const row = document.querySelector('.overlay-row');
