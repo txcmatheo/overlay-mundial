@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBS Scoreboard Overlay - Mundial 2026</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;1,700&display=swap');
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 12px;
+            background-color: transparent;
+            font-family: 'Barlow Condensed', sans-serif;
+            overflow: hidden;
+        }
+        .overlay-row {
+            --home-a: #00ffc8; --home-b: #ffffff;
+            --away-a: #8a6bff; --away-b: #ffffff;
+            display: flex; align-items: center; width: fit-content;
+        }
+        .scoreboard {
+            display: flex; align-items: center;
+            background: #0a0a0a; border-radius: 50px;
+            padding: var(--sb-pad-v, 8px) var(--sb-pad-h, 28px); width: fit-content;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            position: relative; isolation: isolate; z-index: 2;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        /* grids de colores asociados a cada bandera, confinados a cada lado */
+        .scoreboard::before, .scoreboard::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 58%;
+            z-index: 0; pointer-events: none; opacity: 0.16; mix-blend-mode: screen;
+            background-image:
+                repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 14px),
+                repeating-linear-gradient(0deg,  currentColor 0 1px, transparent 1px 14px);
+        }
+        .scoreboard::before {
+            left: 0; color: var(--home-a); border-radius: 50px 0 0 50px;
+            -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+            -webkit-mask-composite: destination-in;
+                    mask-image: linear-gradient(90deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+                    mask-composite: intersect;
+        }
+        .scoreboard::after {
+            right: 0; color: var(--away-a); border-radius: 0 50px 50px 0;
+            -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+            -webkit-mask-composite: destination-in;
+                    mask-image: linear-gradient(270deg, #000 55%, transparent 100%),
+                                linear-gradient(180deg, #000 0%, #000 40%, transparent 100%);
+                    mask-composite: intersect;
+        }
+        /* Anillo grueso uniforme en todo el perímetro */
+        .accent-line {
+            position: absolute; inset: -6px;
+            border-radius: 58px; z-index: -1; pointer-events: none;
+            padding: 6px;
+            background: linear-gradient(90deg, var(--home-a), var(--home-b) 45%, var(--away-b) 55%, var(--away-a));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+                    mask-image: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    mask-composite: exclude;
+            filter: drop-shadow(0 0 4px var(--home-a)) drop-shadow(0 0 4px var(--away-a));
+            opacity: 0.9;
+            clip-path: inset(8px 0 0 0 round 58px);
+        }
+        .timer-box {
+            background: #fff; color: #000;
+            padding: var(--timer-pad-v, 8px) var(--timer-pad-r, 32px) var(--timer-pad-v, 8px) var(--timer-pad-l, 20px);
+            font-size: var(--timer-font, 22px); font-weight: 800;
+            border-radius: 50px; min-width: var(--timer-min-w, 60px); text-align: center;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            position: relative; z-index: 1; margin-right: var(--timer-overlap, -26px);
+        }
+        .teams-container { display: flex; align-items: center; }
+        .team { position: relative; z-index: 2; display: flex; align-items: center; color: #fff; font-size: var(--team-font, 26px); letter-spacing: 2px; gap: var(--team-gap, 8px); }
+        .flag { width: var(--flag-w, 34px); height: var(--flag-h, 22px); object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+        .dot { width: var(--dot-size, 10px); height: var(--dot-size, 10px); border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .dot-home { background: var(--home-a); }
+        .dot-away { background: var(--away-a); }
+        .team-name { padding: 0 3px; font-weight: 700; white-space: nowrap; }
+        .score-box {
+            position: relative; z-index: 3;
+            background: #00ffc8; color: #000;
+            font-size: var(--score-font, 34px); font-weight: 900;
+            padding: var(--score-pad-v, 10px) var(--score-pad-h, 14px); border-radius: 10px;
+            margin: var(--score-margin-v, -13px) 0 var(--score-margin-v, -13px) 0;
+            min-width: var(--score-min-w, 44px); text-align: center;
+            align-self: stretch;
+            display: flex; align-items: center; justify-content: center;
+            line-height: 1;
+        }
+        #score-home { margin-right: var(--score-overlap, -8px); }
+        #score-away { margin-left:  var(--score-overlap, -8px); }
+        .logo-center {
+            position: relative; z-index: 6;
+            display: flex; align-items: center; justify-content: center;
+            background: #111; border-radius: 12px;
+            padding: var(--logo-pad-v, 8px) var(--logo-pad-h, 10px);
+            margin: var(--logo-margin, -26px) 0;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.9);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        .logo-center img { height: var(--logo-h, 58px); filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); }
+        .pulse { animation: pulse-anim 0.4s ease-in-out; }
+        @keyframes pulse-anim {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.25); background-color: #ff0055; color: white; }
+            100% { transform: scale(1); }
+        }
+        #event-panel {
+            margin-top: 10px; width: fit-content; opacity: 0;
+            transform: translateY(-12px) scale(0.95);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+            pointer-events: none;
+        }
+        #event-panel.visible { opacity: 1; transform: translateY(0) scale(1); }
+        .event-card {
+            display: flex; align-items: center; gap: 12px;
+            border-radius: 10px; padding: 8px 20px 8px 14px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6); min-width: 260px;
+        }
+        .event-card.goal     { background: linear-gradient(135deg,#00ffcc,#00d4aa); color:#000; }
+        .event-card.yellow   { background: linear-gradient(135deg,#ffe600,#ffc200); color:#000; }
+        .event-card.red      { background: linear-gradient(135deg,#ff1a1a,#cc0000); color:#fff; }
+        .event-card.halftime { background: linear-gradient(135deg,#1a1a2e,#16213e); color:#fff; border:2px solid #00ffcc; }
+        .event-card.fulltime { background: linear-gradient(135deg,#0f3460,#533483); color:#fff; border:2px solid #ffe600; }
+        .event-icon  { font-size: 36px; line-height: 1; flex-shrink: 0; }
+        .event-body  { display: flex; flex-direction: column; }
+        .event-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; }
+        .event-sub   { font-size: 16px; font-weight: 400; opacity: 0.85; line-height: 1.2; }
+        .scoreboard.flash-goal { animation: sb-goal  1s ease forwards; }
+        .scoreboard.flash-card { animation: sb-card 0.6s ease forwards; }
+        .scoreboard.flash-ht   { animation: sb-ht   0.8s ease forwards; }
+        .scoreboard.flash-ft   { animation: sb-ft   1.2s ease forwards; }
+        @keyframes sb-goal { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 30%{box-shadow:0 0 40px 10px rgba(0,255,204,.9)} 60%{box-shadow:0 0 60px 18px rgba(0,255,204,.5)} }
+        @keyframes sb-card { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 40%{box-shadow:0 0 35px 8px rgba(255,80,0,.8)} }
+        @keyframes sb-ht   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 50%{box-shadow:0 0 40px 10px rgba(0,200,255,.7)} }
+        @keyframes sb-ft   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 25%,75%{box-shadow:0 0 50px 14px rgba(255,230,0,.85)} 50%{box-shadow:0 0 70px 22px rgba(255,230,0,.5)} }
+    </style>
+</head>
+<body>
+    <div class="overlay-row">
+        <div class="timer-box" id="clock">--:--</div>
+        <div class="scoreboard" id="scoreboard">
+            <div class="accent-line"></div>
+            <div class="teams-container">
+                <div class="team">
+                    <img class="flag" id="flag-home" src="" alt="">
+                    <span class="dot dot-home"></span>
+                    <span class="team-name" id="name-home">---</span>
+                </div>
+                <div class="score-box" id="score-home">0</div>
+                <div class="logo-center">
+                    <img src="assets/6652f9c0d6bbc.jpeg" alt="FIFA 26">
+                </div>
+                <div class="score-box" id="score-away">0</div>
+                <div class="team">
+                    <span class="team-name" id="name-away">---</span>
+                    <span class="dot dot-away"></span>
+                    <img class="flag" id="flag-away" src="" alt="">
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="event-panel">
+        <div class="event-card" id="event-card">
+            <div class="event-icon" id="event-icon">⚽</div>
+            <div class="event-body">
+                <div class="event-title" id="event-title">GOL</div>
+                <div class="event-sub"   id="event-sub">Jugador</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ══════════════════════════════════════════════════════════════
+    //  CONFIGURACIÓN
+    //  Todas las llamadas van al BRIDGE (proxy CORS).
+    //  Local:   python bridge.py  → http://localhost:8001
+    //  Render:  reemplazá BRIDGE_URL con tu URL de Render
+    //  OBS:     agregar como "Browser Source"
+    // ══════════════════════════════════════════════════════════════
+    // ▼▼▼ Cambiá esta URL por la de tu bridge en Render ▼▼▼
+    const BRIDGE_URL = 'https://overlay-mundial.onrender.com';
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    // Bridges a probar en orden: local (si estás corriendo bridge.py) y Render.
+    // En producción (GitHub Pages) el intento al bridge local falla casi
+    // instantáneamente (connection refused) y se pasa al siguiente.
+    const LOCAL_BRIDGE = 'http://localhost:8001';
+
+    const CONFIG = {
+        autoMatch:        true,
+        matchId:          '',       // se llena automático; o pon un ID manual
+        pollIntervalMs:   5000,
+        eventDurationMs:  6000,
+        useFullNames:     false,
+    };
+
+    // ── COUNTRY MAP ──────────────────────────────────────────────
+    const COUNTRY_MAP = {
+        'Canadá':['ca','CAN'],'Canada':['ca','CAN'],
+        'Bosnia-Herzegovina':['ba','BIH'],
+        'Estados Unidos':['us','USA'],'United States':['us','USA'],
+        'Paraguay':['py','PAR'],'México':['mx','MEX'],'Mexico':['mx','MEX'],
+        'Argentina':['ar','ARG'],'Brasil':['br','BRA'],'Brazil':['br','BRA'],
+        'Uruguay':['uy','URU'],'Colombia':['co','COL'],'Ecuador':['ec','ECU'],
+        'Chile':['cl','CHI'],'Perú':['pe','PER'],'Peru':['pe','PER'],
+        'Bolivia':['bo','BOL'],'Venezuela':['ve','VEN'],
+        'Francia':['fr','FRA'],'France':['fr','FRA'],
+        'Alemania':['de','GER'],'Germany':['de','GER'],
+        'España':['es','ESP'],'Spain':['es','ESP'],
+        'Inglaterra':['gb-eng','ENG'],'England':['gb-eng','ENG'],
+        'Portugal':['pt','POR'],'Países Bajos':['nl','NED'],'Netherlands':['nl','NED'],'Holanda':['nl','NED'],'Holland':['nl','NED'],'Nederland':['nl','NED'],
+        'Bélgica':['be','BEL'],'Belgium':['be','BEL'],
+        'Italia':['it','ITA'],'Italy':['it','ITA'],
+        'Croacia':['hr','CRO'],'Croatia':['hr','CRO'],
+        'Marruecos':['ma','MAR'],'Morocco':['ma','MAR'],
+        'Japón':['jp','JPN'],'Japan':['jp','JPN'],
+        'Corea del Sur':['kr','KOR'],'South Korea':['kr','KOR'],
+        'Senegal':['sn','SEN'],'Ghana':['gh','GHA'],'Nigeria':['ng','NGA'],
+        'Camerún':['cm','CMR'],'Cameroon':['cm','CMR'],
+        'Túnez':['tn','TUN'],'Tunisia':['tn','TUN'],
+        'Egipto':['eg','EGY'],'Egypt':['eg','EGY'],
+        'Argelia':['dz','ALG'],'Algeria':['dz','ALG'],
+        'Costa de Marfil':['ci','CIV'],'Ivory Coast':['ci','CIV'],
+        'Sudáfrica':['za','RSA'],'South Africa':['za','RSA'],
+        'Arabia Saudita':['sa','KSA'],'Saudi Arabia':['sa','KSA'],
+        'Irán':['ir','IRN'],'Iran':['ir','IRN'],
+        'Catar':['qa','QAT'],'Qatar':['qa','QAT'],
+        'Australia':['au','AUS'],'Nueva Zelanda':['nz','NZL'],'New Zealand':['nz','NZL'],
+        'Polonia':['pl','POL'],'Poland':['pl','POL'],
+        'Suiza':['ch','SUI'],'Switzerland':['ch','SUI'],
+        'Dinamarca':['dk','DEN'],'Denmark':['dk','DEN'],
+        'Suecia':['se','SWE'],'Sweden':['se','SWE'],
+        'Noruega':['no','NOR'],'Norway':['no','NOR'],
+        'Austria':['at','AUT'],'Serbia':['rs','SRB'],
+        'Ucrania':['ua','UKR'],'Ukraine':['ua','UKR'],
+        'República Checa':['cz','CZE'],'Czech Republic':['cz','CZE'],
+        'Gales':['gb-wls','WAL'],'Wales':['gb-wls','WAL'],
+        'Escocia':['gb-sct','SCO'],'Scotland':['gb-sct','SCO'],
+        'Turquía':['tr','TUR'],'Turkey':['tr','TUR'],
+        'Grecia':['gr','GRE'],'Greece':['gr','GRE'],
+        'Panamá':['pa','PAN'],'Panama':['pa','PAN'],
+        'Costa Rica':['cr','CRC'],'Jamaica':['jm','JAM'],'Honduras':['hn','HON'],
+        'Haití':['ht','HAI'],'Jordania':['jo','JOR'],'Uzbekistán':['uz','UZB'],
+        'Curazao':['cw','CUW'],'Nueva Caledonia':['nc','NCL'],
+        'Cabo Verde':['cv','CPV'],'Cape Verde':['cv','CPV'],'Islas Cabo Verde':['cv','CPV'],
+        'Islandia':['is','ISL'],'Iceland':['is','ISL'],'ISL':['is','ISL'],
+        'Albania':['al','ALB'],'Eslovenia':['si','SVN'],'Slovenia':['si','SVN'],
+        'Eslovaquia':['sk','SVK'],'Slovakia':['sk','SVK'],
+        'Hungría':['hu','HUN'],'Hungary':['hu','HUN'],
+        'Rumania':['ro','ROU'],'Romania':['ro','ROU'],
+        'Bulgaria':['bg','BUL'],'Bulgaria':['bg','BUL'],
+        'Tanzania':['tz','TAN'],'Tanzania':['tz','TAN'],
+        'Guinea':['gn','GUI'],'Benín':['bj','BEN'],'Benin':['bj','BEN'],
+        'Mozambique':['mz','MOZ'],'Zambia':['zm','ZAM'],
+        'Iraq':['iq','IRQ'],'Siria':['sy','SYR'],'Syria':['sy','SYR'],
+        'Tailandia':['th','THA'],'Thailand':['th','THA'],
+        'Vietnam':['vn','VIE'],'Indonesia':['id','IDN'],
+        'Filipinas':['ph','PHI'],'Philippines':['ph','PHI'],
+        'Omán':['om','OMA'],'Oman':['om','OMA'],
+        'Baréin':['bh','BHR'],'Bahrain':['bh','BHR'],
+        'Kuwait':['kw','KUW'],'Irak':['iq','IRQ'],
+        'Guatemala':['gt','GUA'],'El Salvador':['sv','SLV'],
+        'Cuba':['cu','CUB'],'Trinidad y Tobago':['tt','TRI'],'Trinidad and Tobago':['tt','TRI'],
+        'RD Congo':['cd','COD'],'República Democrática del Congo':['cd','COD'],
+        'DR Congo':['cd','COD'],'Congo DR':['cd','COD'],'Congo, DR':['cd','COD'],
+    };
+    const flagInfo = name => COUNTRY_MAP[name] || [null, name.substring(0,3).toUpperCase()];
+    const setFlag  = (el, iso) => { if(iso){el.src=`https://flagcdn.com/w80/${iso}.png`;el.style.visibility='visible';}else{el.style.visibility='hidden';} };
+
+    // ── COLORES DE BANDERA (para el grid del scoreboard) ─────────
+    // [colorPrincipal, colorSecundario] por código ISO
+    const FLAG_COLORS = {
+        ca:['#FF0000','#FFFFFF'], ba:['#002395','#FECB00'], us:['#B22234','#3C3B6E'],
+        py:['#D52B1E','#0038A8'], mx:['#006847','#CE1126'], ar:['#75AADB','#F6B40E'],
+        br:['#009639','#FEDD00'], uy:['#0038A8','#FCD116'], co:['#FCD116','#CE1126'],
+        ec:['#FFD100','#034EA2'], cl:['#0033A0','#D52B1E'], pe:['#D91023','#FFFFFF'],
+        bo:['#D52B1E','#007934'], ve:['#FFCC00','#00247D'], fr:['#0055A4','#EF4135'],
+        de:['#DD0000','#FFCE00'], es:['#AA151B','#F1BF00'], 'gb-eng':['#CE1124','#FFFFFF'],
+        pt:['#046A38','#DA291C'], nl:['#FF9B00','#21468B'], be:['#FFD90F','#ED2939'],
+        it:['#008C45','#CD212A'], hr:['#FF0000','#171796'], ma:['#C1272D','#006233'],
+        jp:['#BC002D','#FFFFFF'], kr:['#003478','#C60C30'], sn:['#00853F','#FDEF42'],
+        gh:['#FCD116','#006B3F'], ng:['#008751','#FFFFFF'], cm:['#007A5E','#CE1126'],
+        tn:['#E70013','#FFFFFF'], eg:['#CE1126','#FFD700'], dz:['#006233','#D21034'],
+        ci:['#F77F00','#009E60'], za:['#007A4D','#FFB81C'], sa:['#006C35','#FFFFFF'],
+        ir:['#239F40','#DA0000'], qa:['#8A1538','#FFFFFF'], au:['#00008B','#FF0000'],
+        nz:['#00247D','#CC142B'], pl:['#DC143C','#FFFFFF'], ch:['#FF0000','#FFFFFF'],
+        dk:['#C8102E','#FFFFFF'], se:['#006AA7','#FECC02'], no:['#BA0C2F','#00205B'],
+        at:['#ED2939','#FFFFFF'], rs:['#C6363C','#0C4076'], ua:['#0057B7','#FFD700'],
+        cz:['#D7141A','#11457E'], 'gb-wls':['#C8102E','#00B140'], 'gb-sct':['#0065BD','#FFFFFF'],
+        tr:['#E30A17','#FFFFFF'], gr:['#0D5EAF','#FFFFFF'], pa:['#DA291C','#072357'],
+        cr:['#CE1126','#002B7F'], jm:['#009B3A','#FED100'], hn:['#0073CF','#FFFFFF'],
+        ht:['#00209F','#D21034'], jo:['#CE1126','#007A3D'], uz:['#0099B5','#1EB53A'],
+        cw:['#002B7F','#F9E814'], nc:['#003F87','#ED2939'],
+        cv:['#003893','#CF2027'], is:['#003897','#DC1E35'],
+        al:['#E41E20','#000000'], si:['#003DA5','#003DA5'],
+        sk:['#FFFFFF','#0B4EA2'], hu:['#CE2939','#477050'],
+        ro:['#002B7F','#FCD116'], bg:['#00966E','#D62612'],
+        tz:['#1EB53A','#FCD116'], gn:['#CE1126','#FCD116'],
+        bj:['#008751','#FCD116'], mz:['#009A44','#FFCA00'],
+        zm:['#198A00','#EF7D00'], iq:['#CE1126','#007A3D'],
+        sy:['#CE1126','#007A3D'], th:['#A51931','#2D2A4A'],
+        vn:['#DA251D','#FFCD00'], id:['#CE1126','#FFFFFF'],
+        ph:['#0038A8','#CE1126'], om:['#DB161B','#FFFFFF'],
+        bh:['#CE1126','#FFFFFF'], kw:['#007A3D','#CE1126'],
+        gt:['#4997D0','#FFFFFF'], sv:['#0F47AF','#FFFFFF'],
+        cu:['#002A8F','#CC0001'], tt:['#CE1126','#000000'],
+        cd:['#007FFF','#F7D618'],
+    };
+    const flagAccents = iso => FLAG_COLORS[iso] || ['#00ffc8','#ffffff'];
+    const row = document.querySelector('.overlay-row');
+    function applyTeamColors(hIso, aIso) {
+        const [ha,hb] = flagAccents(hIso);
+        const [aa,ab] = flagAccents(aIso);
+        row.style.setProperty('--home-a', ha);
+        row.style.setProperty('--home-b', hb);
+        row.style.setProperty('--away-a', aa);
+        row.style.setProperty('--away-b', ab);
+    }
+
+    // ── AUDIO (desactivado) ──────────────────────────────────────
+    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){} };
+
+    // ── UI REFS ──────────────────────────────────────────────────
+    const $  = id => document.getElementById(id);
+    const sb = $('scoreboard');
+    const ui = { clock:$('clock'), nameHome:$('name-home'), nameAway:$('name-away'),
+                 scoreHome:$('score-home'), scoreAway:$('score-away'),
+                 flagHome:$('flag-home'), flagAway:$('flag-away') };
+
+    function pulse(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'),500); }
+
+    let evTimer = null;
+    function showEvent({type,icon,title,sub,sfx,flash}) {
+        if(evTimer) clearTimeout(evTimer);
+        sb.className='scoreboard'; void sb.offsetWidth; if(flash) sb.classList.add(flash);
+        try { if(sfx) sfx(); } catch(e){}
+        $('event-card').className=`event-card ${type}`;
+        $('event-icon').textContent=icon; $('event-title').textContent=title; $('event-sub').textContent=sub||'';
+        const p=$('event-panel'); p.classList.remove('visible'); void p.offsetWidth; p.classList.add('visible');
+        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); }, CONFIG.eventDurationMs);
+    }
+
+    // ── ESTADO ───────────────────────────────────────────────────
+    const fired = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+    let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
+
+
+    // ── EVENTOS ──────────────────────────────────────────────────
+    // Usa m._events[] poblado por enrichLiveMatch desde /detail/:id
+    // Estructura real: {minute, type:"goal"|"goal-own"|"yellow"|"red",
+    //                   team:"home"|"away", playerName, playerNameFull, assist, assistFull}
+
+    function checkEvents(m) {
+        if(!state.ready) return;
+        const {homeName:hn, awayName:an} = state;
+
+        // Minuto actual del partido
+        const currentMinute = m.minute ?? null;
+
+        (m._events||[]).forEach(ev => {
+            const key = `${ev.type}-${ev.team}-${ev.minute}-${ev.addedMinute||0}-${ev.playerName||''}`;
+            if(fired.goalKeys.has(key)) return;
+            fired.goalKeys.add(key);
+
+            // Validar que el evento ocurrió cerca del minuto actual.
+            // Si el evento es más de 2 minutos anterior al minuto actual del partido,
+            // significa que ya había pasado antes de esta sesión → ignorar.
+            // Margen de +2 para cubrir el lag de la API (el evento puede llegar
+            // 1-2 polls después de que realmente ocurrió).
+            if(currentMinute != null && ev.minute != null) {
+                const evEffectiveMinute = (ev.minute ?? 0) + (ev.addedMinute ?? 0);
+                const diff = currentMinute - evEffectiveMinute;
+                if(diff > 2) {
+                    console.log(`⏩ Evento ignorado (min ${ev.minute} vs actual ${currentMinute}): ${key}`);
+                    return;
+                }
+            }
+
+            const teamName  = ev.team==='home' ? hn : an;
+            const opponent  = ev.team==='home' ? an : hn;
+            const player    = ev.playerNameFull || ev.playerName || '';
+            const minLabel  = ev.minute != null
+                ? (ev.addedMinute ? `${ev.minute}+${ev.addedMinute}'` : `${ev.minute}'`)
+                : '';
+            const minStr    = minLabel ? ` — ${minLabel}` : '';
+            const assistStr = ev.assist ? ` (Ast: ${ev.assistFull||ev.assist})` : '';
+
+            if(ev.type==='goal') {
+                showEvent({type:'goal', icon:'⚽',
+                    title:`¡GOL! ${teamName}`,
+                    sub:`${player}${minStr}${assistStr}`,
+                    sfx:SFX.goal, flash:'flash-goal'});
+            } else if(ev.type==='goal-own') {
+                showEvent({type:'goal', icon:'⚽',
+                    title:`¡GOL EN CONTRA! ${opponent}`,
+                    sub:`${player}${minStr} (en propia)`,
+                    sfx:SFX.goal, flash:'flash-goal'});
+            } else if(ev.type==='yellow') {
+                showEvent({type:'yellow', icon:'🟨',
+                    title:'TARJETA AMARILLA',
+                    sub:`${player} (${teamName})${minStr}`,
+                    sfx:SFX.yellowCard, flash:'flash-card'});
+            } else if(ev.type==='red') {
+                showEvent({type:'red', icon:'🟥',
+                    title:'TARJETA ROJA',
+                    sub:`${player} (${teamName})${minStr}`,
+                    sfx:SFX.redCard, flash:'flash-card'});
+            }
+        });
+
+        // Medio tiempo
+        if(!fired.ht && m.period==='HT') {
+            fired.ht=true;
+            showEvent({type:'halftime', icon:'⏸️', title:'MEDIO TIEMPO',
+                sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
+                sfx:SFX.halfTime, flash:'flash-ht'});
+        }
+
+        // Final
+        if(!fired.ft && m.status==='finished') {
+            fired.ft=true;
+            showEvent({type:'fulltime', icon:'🏁', title:'FIN DEL PARTIDO',
+                sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
+                sfx:SFX.fullTime, flash:'flash-ft'});
+        }
+    }
+
+    // ── AUTO-SCALE ───────────────────────────────────────────────
+    // Ajusta dinámicamente todos los tamaños según la longitud combinada
+    // de los nombres de los equipos, sin equipos predefinidos.
+    function autoScale(homeName, awayName) {
+        // Longitud total de caracteres (ambos equipos)
+        const totalChars = (homeName || '').length + (awayName || '').length;
+
+        // Definir breakpoints: [maxChars, escala]
+        // escala 1.0 = tamaños base originales
+        let scale;
+        if      (totalChars <=  8) scale = 1.15;  // nombres muy cortos (BRA, ARG)
+        else if (totalChars <= 12) scale = 1.0;   // nombres cortos normales
+        else if (totalChars <= 16) scale = 0.88;  // nombres medianos
+        else if (totalChars <= 20) scale = 0.78;  // nombres largos
+        else if (totalChars <= 26) scale = 0.68;  // nombres muy largos
+        else                       scale = 0.58;  // extremadamente largos
+
+        const r = document.querySelector('.overlay-row');
+        const s = v => `${Math.round(v * scale)}px`;
+        const f = v => `${(v * scale).toFixed(1)}px`;
+
+        // Fuentes
+        r.style.setProperty('--team-font',   f(26));
+        r.style.setProperty('--score-font',  f(34));
+        r.style.setProperty('--timer-font',  f(22));
+
+        // Gaps y tamaños
+        r.style.setProperty('--team-gap',    s(8));
+        r.style.setProperty('--dot-size',    s(10));
+        r.style.setProperty('--flag-w',      s(34));
+        r.style.setProperty('--flag-h',      s(22));
+
+        // Score box
+        r.style.setProperty('--score-pad-v',    s(10));
+        r.style.setProperty('--score-pad-h',    s(14));
+        r.style.setProperty('--score-min-w',    s(44));
+        r.style.setProperty('--score-margin-v', `-${s(13).replace('px','')}px`);
+        r.style.setProperty('--score-overlap',  `-${s(8).replace('px','')}px`);
+
+        // Logo central
+        r.style.setProperty('--logo-h',       s(58));
+        r.style.setProperty('--logo-pad-v',   s(8));
+        r.style.setProperty('--logo-pad-h',   s(10));
+        r.style.setProperty('--logo-margin',  `-${s(26).replace('px','')}px`);
+
+        // Timer / reloj
+        r.style.setProperty('--timer-pad-v',      s(8));
+        r.style.setProperty('--timer-pad-r',      s(32));
+        r.style.setProperty('--timer-pad-l',      s(20));
+        r.style.setProperty('--timer-min-w',      s(60));
+        r.style.setProperty('--timer-overlap',    `-${s(26).replace('px','')}px`);
+
+        // Scoreboard padding
+        r.style.setProperty('--sb-pad-v',  s(8));
+        r.style.setProperty('--sb-pad-h',  s(28));
+    }
+
+    // ── SCOREBOARD UI ────────────────────────────────────────────
+    function formatClock(m) {
+        if(m.status==='live') {
+            if(m.period==='HT') return 'MT';
+            if(m.minute!=null) {
+                return m.addedMinute ? `${m.minute}+${m.addedMinute}'` : `${m.minute}'`;
+            }
+            return 'EN VIVO';
+        }
+        if(m.status==='finished')  return 'FT';
+        if(m.status==='postponed') return 'SUSP';
+        return new Date(m.startTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    }
+
+    function renderMatch(m) {
+        const [hIso,hCode] = flagInfo(m.homeTeam.name);
+        const [aIso,aCode] = flagInfo(m.awayTeam.name);
+        const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
+        const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
+
+        // Ajustar tamaños automáticamente según los nombres reales
+        autoScale(hn, an);
+
+        ui.nameHome.textContent = hn;
+        ui.nameAway.textContent = an;
+        setFlag(ui.flagHome, hIso);
+        setFlag(ui.flagAway, aIso);
+        applyTeamColors(hIso, aIso);
+
+        const clk = formatClock(m);
+        if(ui.clock.textContent!==clk) ui.clock.textContent=clk;
+
+        const hs=String(m.homeScore??0), as=String(m.awayScore??0);
+        if(ui.scoreHome.textContent!==hs){ ui.scoreHome.textContent=hs; if(state.ready) pulse(ui.scoreHome); }
+        if(ui.scoreAway.textContent!==as){ ui.scoreAway.textContent=as; if(state.ready) pulse(ui.scoreAway); }
+
+        state.homeName=hn; state.awayName=an;
+        state.homeId=m.homeTeam.id; state.awayId=m.awayTeam.id;
+    }
+
+    // ── FETCH SCHEDULE → extraer partido del Mundial ─────────────
+    //
+    //  FLUJO:
+    //  1. GET /match del bridge → partidos ayer+hoy+mañana en 1 request
+    //  2. Filtrar tournamentCalendarSlug contiene 'world-cup'
+    //  3. Elegir el mejor (live > próximo > último terminado)
+    //  4. Si está live → GET /detail/:id → score, minuto, eventos (goles, tarjetas)
+    //
+    function pickBest(matches) {
+        const now = Date.now();
+        const live = matches.filter(m=>m.status==='live');
+        if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live[0]; }
+        const pending = matches
+            .filter(m=>m.status!=='finished'&&m.status!=='postponed')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t)&&t<=now&&(now-t)<=2*60*60*1000);
+        if(pending.length){ pending.sort((a,b)=>b.t-a.t); return pending[0].m; }
+        const upcoming = matches
+            .filter(m=>m.status!=='finished'&&m.status!=='postponed')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t)&&t>now);
+        if(upcoming.length){ upcoming.sort((a,b)=>a.t-b.t); return upcoming[0].m; }
+        // 4. Último partido terminado — sin límite de tiempo para no perder
+        //    partidos que acaban de terminar (ej: USA vs Paraguay FT)
+        const finished = matches
+            .filter(m=>m.status==='finished')
+            .map(m=>({m,t:new Date(m.startTime).getTime()}))
+            .filter(({t})=>!isNaN(t));
+        if(finished.length){ finished.sort((a,b)=>b.t-a.t); return finished[0].m; }
+        return null;
+    }
+
+    // Fechas en hora Argentina (UTC-3) — mismo criterio que elnine para indexar partidos
+    function arDates() {
+        const AR_OFFSET = -3 * 60; // minutos
+        const now = new Date();
+        const toAR = d => { const x = new Date(d); x.setMinutes(x.getMinutes() + AR_OFFSET - x.getTimezoneOffset()); return x; };
+        const fmt  = d => toAR(d).toISOString().slice(0,10);
+        const y = new Date(now); y.setDate(now.getDate()-1);
+        const t = new Date(now); t.setDate(now.getDate()+1);
+        return [fmt(y), fmt(now), fmt(t)];
+    }
+
+    // Llama directamente a elnine (funciona desde el browser, CORS está abierto)
+    async function fetchScheduleDate(dateStr) {
+        const url = `https://api.elnine.com.ar/schedule?date=${dateStr}&_t=${Date.now()}`;
+        const r = await fetch(url, {cache:'no-store'});
+        if(!r.ok) throw new Error(`elnine HTTP ${r.status}`);
+        return (await r.json()).matches || [];
+    }
+
+    // Fetch directo a elnine para las 3 fechas en paralelo (estrategia principal)
+    async function fetchAllDirect() {
+        const dates = arDates();
+        const results = await Promise.allSettled(dates.map(d => fetchScheduleDate(d)));
+        const seen = new Set(), all = [];
+        let okCount = 0;
+        results.forEach((r, i) => {
+            if(r.status==='fulfilled') {
+                okCount++;
+                for(const m of r.value) {
+                    if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+                }
+            } else {
+                console.warn(`⚠️ fetchScheduleDate(${dates[i]}) falló:`, r.reason);
+            }
+        });
+        // Si NINGUNA fecha pudo consultarse (CORS, red, etc.), no confiar en
+        // "all=[]" como si fuera un resultado real — forzar fallback al bridge.
+        if(okCount === 0) {
+            throw new Error('fetchAllDirect: las 3 fechas fallaron (ver warnings arriba)');
+        }
+        return all;
+    }
+
+    // Bridge como fallback (proxy CORS), parametrizado por URL base
+    async function fetchAllViaBridge(base) {
+        const r = await fetch(`${base}/match?_t=${Date.now()}`, {cache:'no-store'});
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        const all = [];
+        for(const item of (data.items||[])) {
+            for(const m of (item.matches||[])) all.push(m);
+        }
+        return all;
+    }
+
+    // Intenta, en orden: bridge local → elnine directo → bridge de Render.
+    // El primero que responda sin lanzar error (incluso con 0 partidos
+    // legítimos) gana. Errores (CORS, connection refused, etc.) pasan al siguiente.
+    async function fetchAllSmart() {
+        const strategies = [
+            ['bridge-local',  () => fetchAllViaBridge(LOCAL_BRIDGE)],
+            ['elnine-directo', fetchAllDirect],
+            ['bridge-render', () => fetchAllViaBridge(BRIDGE_URL)],
+        ];
+        for(const [name, fn] of strategies) {
+            try {
+                const all = await fn();
+                console.log(`✅ ${name} OK → ${all.length} partidos`);
+                return all;
+            } catch(e) {
+                console.warn(`⚠️ ${name} falló:`, e.message);
+            }
+        }
+        console.error('❌ Todas las fuentes fallaron');
+        return [];
+    }
+
+    // Enriquece el partido con datos en tiempo real desde elnine /match/:id
+    async function enrichLiveMatch(match) {
+        // Intentar primero directo a elnine, fallback al bridge
+        const urls = [
+            `https://api.elnine.com.ar/match/${match.id}?_t=${Date.now()}`,
+            `${LOCAL_BRIDGE}/detail/${match.id}?_t=${Date.now()}`,
+            `${BRIDGE_URL}/detail/${match.id}?_t=${Date.now()}`,
+        ];
+        for(const url of urls) {
+            try {
+                const r = await fetch(url, {cache:'no-store'});
+                if(!r.ok) continue;
+                const raw = await r.json();
+                const d = raw.matchDetail ?? raw;
+
+                match.homeScore    = d.homeTeam?.score   ?? match.homeScore;
+                match.awayScore    = d.awayTeam?.score   ?? match.awayScore;
+                match.minute       = d.minute             ?? match.minute;
+                match.addedMinute  = d.addedMinute        ?? null;
+                if(d.period) match.period = d.period;
+                if(d.status) match.status = d.status;
+                match.homeTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='home').length;
+                match.awayTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='away').length;
+                match._events = d.events || [];
+                break; // éxito, salir del loop
+            } catch(e) { /* intentar siguiente URL */ }
+        }
+        return match;
+    }
+
+    async function fetchYellowCards(matchId) { /* reemplazado por enrichLiveMatch */ }
+
+    async function poll() {
+        try {
+            const all = await fetchAllSmart();
+
+            // Filtrar solo partidos del Mundial
+            // Acepta cualquier slug que contenga 'world-cup' para cubrir
+            // variantes como 'fifa-world-cup', 'fifa-world-cup-2026', etc.
+            const WC_SLUGS = ['fifa-world-cup','fifa-world-cup-2026','world-cup-2026','world-cup'];
+            const isWC = m => {
+                const s = (m.tournamentCalendarSlug||'').toLowerCase();
+                return WC_SLUGS.some(k=>s===k) || s.includes('world-cup');
+            };
+            const wc = all.filter(isWC);
+            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs disponibles: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
+            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
+
+
+            let match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
+
+            if(!match){ console.warn('⚠️ No hay partido del Mundial'); return; }
+
+            // Si cambió el partido, resetear estado
+            if(match.id !== CONFIG.matchId) {
+                console.info(`🔄 Nuevo partido: ${match.homeTeam.name} vs ${match.awayTeam.name} (${match.id})`);
+                CONFIG.matchId = match.id;
+                fired.goalKeys.clear();
+                fired.yH=0; fired.yA=0; fired.rH=0; fired.rA=0;
+                fired.ht=false; fired.ft=false;
+                prevYH=0; prevYA=0;
+                state.ready=false;
+            }
+
+            // Enriquecer siempre en partidos live con datos de /detail (score, minuto, eventos)
+            if(match.status==='live') {
+                match = await enrichLiveMatch(match);
+            }
+
+            renderMatch(match);
+            if(!state.ready) state.ready = true;
+            checkEvents(match);
+
+            // Amarillas en paralelo (no bloqueante)
+            if(match.status==='live') fetchYellowCards(match.id);
+
+        } catch(err) {
+            console.error('❌ poll error:', err);
+        }
+    }
+
+    // ── INIT ─────────────────────────────────────────────────────
+    console.log(`🚀 Overlay iniciado | bridges: local=${LOCAL_BRIDGE} render=${BRIDGE_URL}`);
+    poll();
+    setInterval(poll, CONFIG.pollIntervalMs);
+    </script>
+</body>
+</html>
