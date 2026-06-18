@@ -323,35 +323,8 @@
         row.style.setProperty('--away-b', ab);
     }
 
-    // ── AUDIO ────────────────────────────────────────────────────
-    let _actx = null;
-    const actx = () => _actx || (_actx = new (window.AudioContext||window.webkitAudioContext)());
-    function tone(freq, type, dur, vol, delay=0) {
-        const c=actx(), o=c.createOscillator(), g=c.createGain();
-        o.connect(g); g.connect(c.destination);
-        o.type=type; o.frequency.setValueAtTime(freq, c.currentTime+delay);
-        g.gain.setValueAtTime(vol, c.currentTime+delay);
-        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime+delay+dur);
-        o.start(c.currentTime+delay); o.stop(c.currentTime+delay+dur+0.05);
-    }
-    const SFX = {
-        goal() {
-            [523,659,784,1047,784,1047,1319].forEach((f,i)=>tone(f,'square',0.18,0.18,i*0.13));
-            [130,196,261].forEach((f,i)=>tone(f,'triangle',0.35,0.12,i*0.18));
-            try {
-                const c=actx(), n=c.sampleRate*1.5, b=c.createBuffer(1,n,c.sampleRate);
-                const d=b.getChannelData(0); for(let j=0;j<n;j++) d[j]=(Math.random()*2-1)*0.06;
-                const s=c.createBufferSource(); s.buffer=b;
-                const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=900; f.Q.value=0.8;
-                const g=c.createGain(); g.gain.setValueAtTime(1,c.currentTime+0.8); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+2.2);
-                s.connect(f); f.connect(g); g.connect(c.destination); s.start(c.currentTime+0.8);
-            } catch(e){}
-        },
-        yellowCard() { tone(2200,'sine',0.12,0.3); tone(2400,'sine',0.10,0.25,0.14); tone(2200,'sine',0.15,0.2,0.26); },
-        redCard()    { tone(2300,'sine',0.5,0.35); tone(110,'sawtooth',0.4,0.15,0.55); tone(90,'sawtooth',0.4,0.12,0.7); },
-        halfTime()   { [0,0.22,0.44].forEach(d=>tone(2100,'sine',0.15,0.3,d)); },
-        fullTime()   { tone(2100,'sine',0.8,0.35); [784,698,659,587,523].forEach((f,i)=>tone(f,'square',0.2,0.14,0.9+i*0.15)); },
-    };
+    // ── AUDIO (desactivado) ──────────────────────────────────────
+    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){} };
 
     // ── UI REFS ──────────────────────────────────────────────────
     const $  = id => document.getElementById(id);
