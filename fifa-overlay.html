@@ -146,23 +146,23 @@
 
         /* ── BADGE SEGUNDO PARTIDO ── */
         #match2-badge {
-            display: none; align-items: center; gap: 8px;
-            background: #111; border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 30px; padding: 5px 14px 5px 10px;
-            margin-top: 8px; width: fit-content;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-            font-size: 14px; color: #fff; letter-spacing: 1px;
+            display: none; align-items: center; gap: 10px;
+            background: #111; border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 30px; padding: 7px 18px 7px 12px;
+            margin-top: 10px; width: fit-content;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+            font-size: 20px; color: #fff; letter-spacing: 2px;
             font-weight: 700; white-space: nowrap;
         }
         #match2-badge.visible { display: flex; }
         #match2-badge .badge-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #ff3b3b; box-shadow: 0 0 6px #ff3b3b;
-            animation: blink-red 1s ease-in-out infinite;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #ff3b3b; box-shadow: 0 0 8px #ff3b3b;
+            animation: blink-red 1s ease-in-out infinite; flex-shrink: 0;
         }
         @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.3} }
         #match2-badge .badge-score { color: #00ffc8; }
-        #match2-badge .badge-label { font-size: 10px; font-weight: 400; opacity: 0.6; margin-left: 2px; letter-spacing: 0; }
+        #match2-badge .badge-label { font-size: 12px; font-weight: 400; opacity: 0.5; margin-left: 4px; letter-spacing: 0; }
     </style>
 </head>
 <body>
@@ -686,20 +686,43 @@
     //  4. Si está live → GET /detail/:id → score, minuto, eventos (goles, tarjetas)
     //
     // Devuelve ARRAY de hasta 2 partidos (para alternancia).
+    // - Live: hasta 2 simultáneos
+    // - Upcoming: si el próximo bloque horario tiene 2+ partidos, devuelve los 2
+    //   (mismo criterio para pending)
     function pickBest(matches) {
         const now = Date.now();
+        const SLOT_WINDOW_MS = 10 * 60 * 1000; // 10 min de margen para considerar "mismo bloque"
+
+        // 1. Live
         const live = matches.filter(m=>m.status==='live');
         if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live.slice(0,2); }
+
+        // 2. Pending (empezaron hace menos de 2h pero no están live aún)
         const pending = matches
             .filter(m=>m.status!=='finished'&&m.status!=='postponed')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t)&&t<=now&&(now-t)<=2*60*60*1000);
-        if(pending.length){ pending.sort((a,b)=>b.t-a.t); return [pending[0].m]; }
+        if(pending.length){
+            pending.sort((a,b)=>b.t-a.t);
+            const ref = pending[0].t;
+            const slot = pending.filter(({t})=>Math.abs(t-ref)<=SLOT_WINDOW_MS);
+            return slot.slice(0,2).map(({m})=>m);
+        }
+
+        // 3. Upcoming — tomar el bloque horario más cercano completo
         const upcoming = matches
             .filter(m=>m.status!=='finished'&&m.status!=='postponed')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t)&&t>now);
-        if(upcoming.length){ upcoming.sort((a,b)=>a.t-b.t); return [upcoming[0].m]; }
+        if(upcoming.length){
+            upcoming.sort((a,b)=>a.t-b.t);
+            const ref = upcoming[0].t;
+            // Todos los que arrancan dentro de los 10 min siguientes al primero
+            const slot = upcoming.filter(({t})=>t-ref<=SLOT_WINDOW_MS);
+            return slot.slice(0,2).map(({m})=>m);
+        }
+
+        // 4. Último terminado
         const finished = matches
             .filter(m=>m.status==='finished')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
