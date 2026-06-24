@@ -139,6 +139,30 @@
         @keyframes sb-card { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 40%{box-shadow:0 0 35px 8px rgba(255,80,0,.8)} }
         @keyframes sb-ht   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 50%{box-shadow:0 0 40px 10px rgba(0,200,255,.7)} }
         @keyframes sb-ft   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 25%,75%{box-shadow:0 0 50px 14px rgba(255,230,0,.85)} 50%{box-shadow:0 0 70px 22px rgba(255,230,0,.5)} }
+
+        /* ── TRANSICIÓN DE ALTERNANCIA ── */
+        .overlay-row { transition: opacity 0.4s ease; }
+        .overlay-row.fading { opacity: 0; }
+
+        /* ── BADGE SEGUNDO PARTIDO ── */
+        #match2-badge {
+            display: none; align-items: center; gap: 10px;
+            background: #111; border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 30px; padding: 7px 18px 7px 12px;
+            margin-top: 10px; width: fit-content;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+            font-size: 20px; color: #fff; letter-spacing: 2px;
+            font-weight: 700; white-space: nowrap;
+        }
+        #match2-badge.visible { display: flex; }
+        #match2-badge .badge-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #ff3b3b; box-shadow: 0 0 8px #ff3b3b;
+            animation: blink-red 1s ease-in-out infinite; flex-shrink: 0;
+        }
+        @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        #match2-badge .badge-score { color: #00ffc8; }
+        #match2-badge .badge-label { font-size: 12px; font-weight: 400; opacity: 0.5; margin-left: 4px; letter-spacing: 0; }
     </style>
 </head>
 <body>
@@ -165,6 +189,13 @@
             </div>
         </div>
     </div>
+    <!-- Badge: segundo partido en vivo -->
+    <div id="match2-badge">
+        <div class="badge-dot"></div>
+        <span id="badge-text"></span>
+        <span class="badge-label">otro partido</span>
+    </div>
+
     <div id="event-panel">
         <div class="event-card" id="event-card">
             <div class="event-icon" id="event-icon">⚽</div>
@@ -347,8 +378,92 @@
     }
 
     // ── ESTADO ───────────────────────────────────────────────────
-    const fired = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+    // ── ESTADO ───────────────────────────────────────────────────
+    const firedMap = {};
+    function getFired(id) {
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+        return firedMap[id];
+    }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
+
+    // ── ROTACIÓN DE PARTIDOS ──────────────────────────────────────
+    const rotation = {
+        matches:     [],      // hasta 2 partidos live
+        index:       0,       // cuál está en pantalla
+        _timer:      null,
+        _readyMap:   {},      // { [matchId]: bool }
+        _lastGoal:   {},      // { [matchId]: total goles último poll }
+        _priorityId: null,    // id con prioridad por gol reciente
+        _priorityUntil: 0,
+        PRIORITY_MS: 30000,   // 30s de prioridad tras gol
+        ROTATE_MS:   20000,   // alternancia normal cada 20s
+    };
+
+    function matchUrgency(m) {
+        return (m.minute ?? 0) + ((m.homeScore ?? 0) + (m.awayScore ?? 0)) * 15;
+    }
+
+    function highPriorityIndex() {
+        if(rotation.matches.length < 2) return 0;
+        if(rotation._priorityId && Date.now() < rotation._priorityUntil) {
+            const idx = rotation.matches.findIndex(m => m.id === rotation._priorityId);
+            if(idx >= 0) return idx;
+        }
+        const [a, b] = rotation.matches;
+        const ua = matchUrgency(a), ub = matchUrgency(b);
+        if(Math.abs(ua - ub) > 10) return ua > ub ? 0 : 1;
+        return rotation.index;
+    }
+
+    function checkGoalPriority() {
+        rotation.matches.forEach(m => {
+            const prev  = rotation._lastGoal[m.id] ?? -1;
+            const total = (m.homeScore ?? 0) + (m.awayScore ?? 0);
+            if(prev >= 0 && total > prev) {
+                rotation._priorityId    = m.id;
+                rotation._priorityUntil = Date.now() + rotation.PRIORITY_MS;
+                console.info(`⚽ Gol → prioridad a ${m.homeTeam.name} vs ${m.awayTeam.name} por ${rotation.PRIORITY_MS/1000}s`);
+            }
+            rotation._lastGoal[m.id] = total;
+        });
+    }
+
+    function rotateTo(idx, animate = true) {
+        if(rotation.matches.length < 2) return;
+        idx = ((idx % rotation.matches.length) + rotation.matches.length) % rotation.matches.length;
+        if(idx === rotation.index && animate) return;
+        rotation.index = idx;
+        if(!animate) { renderMatch(rotation.matches[idx]); updateBadge(); return; }
+        row.classList.add('fading');
+        setTimeout(() => { renderMatch(rotation.matches[idx]); updateBadge(); row.classList.remove('fading'); }, 420);
+    }
+
+    function startRotation() {
+        if(rotation._timer) clearInterval(rotation._timer);
+        rotation._timer = setInterval(() => {
+            if(rotation.matches.length < 2) return;
+            const best = highPriorityIndex();
+            best !== rotation.index ? rotateTo(best) : rotateTo(rotation.index + 1);
+        }, rotation.ROTATE_MS);
+    }
+
+    function stopRotation() {
+        if(rotation._timer) { clearInterval(rotation._timer); rotation._timer = null; }
+    }
+
+    function updateBadge() {
+        const badge = document.getElementById('match2-badge');
+        const txt   = document.getElementById('badge-text');
+        if(rotation.matches.length < 2) { badge.classList.remove('visible'); return; }
+        const other = rotation.matches[rotation.index === 0 ? 1 : 0];
+        if(!other) return;
+        const [,hCode] = flagInfo(other.homeTeam.name);
+        const [,aCode] = flagInfo(other.awayTeam.name);
+        const hn = CONFIG.useFullNames ? other.homeTeam.name : hCode;
+        const an = CONFIG.useFullNames ? other.awayTeam.name : aCode;
+        txt.innerHTML = `${hn} <span class="badge-score">${other.homeScore??0}–${other.awayScore??0}</span> ${an}`;
+        badge.classList.add('visible');
+    }
 
 
     // ── EVENTOS ──────────────────────────────────────────────────
@@ -357,8 +472,12 @@
     //                   team:"home"|"away", playerName, playerNameFull, assist, assistFull}
 
     function checkEvents(m) {
-        if(!state.ready) return;
-        const {homeName:hn, awayName:an} = state;
+        const fired = getFired(m.id);
+        if(!rotation._readyMap[m.id]) return;
+        const [,hCode] = flagInfo(m.homeTeam.name);
+        const [,aCode] = flagInfo(m.awayTeam.name);
+        const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
+        const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
 
         // Minuto actual del partido
         const currentMinute = m.minute ?? null;
@@ -538,26 +657,37 @@
     //
     function pickBest(matches) {
         const now = Date.now();
+        const SLOT_WINDOW_MS = 10 * 60 * 1000;
+
         const live = matches.filter(m=>m.status==='live');
-        if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live[0]; }
+        if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live.slice(0,2); }
+
         const pending = matches
             .filter(m=>m.status!=='finished'&&m.status!=='postponed')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t)&&t<=now&&(now-t)<=2*60*60*1000);
-        if(pending.length){ pending.sort((a,b)=>b.t-a.t); return pending[0].m; }
+        if(pending.length){
+            pending.sort((a,b)=>b.t-a.t);
+            const ref = pending[0].t;
+            return pending.filter(({t})=>Math.abs(t-ref)<=SLOT_WINDOW_MS).slice(0,2).map(({m})=>m);
+        }
+
         const upcoming = matches
             .filter(m=>m.status!=='finished'&&m.status!=='postponed')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t)&&t>now);
-        if(upcoming.length){ upcoming.sort((a,b)=>a.t-b.t); return upcoming[0].m; }
-        // 4. Último partido terminado — sin límite de tiempo para no perder
-        //    partidos que acaban de terminar (ej: USA vs Paraguay FT)
+        if(upcoming.length){
+            upcoming.sort((a,b)=>a.t-b.t);
+            const ref = upcoming[0].t;
+            return upcoming.filter(({t})=>t-ref<=SLOT_WINDOW_MS).slice(0,2).map(({m})=>m);
+        }
+
         const finished = matches
             .filter(m=>m.status==='finished')
             .map(m=>({m,t:new Date(m.startTime).getTime()}))
             .filter(({t})=>!isNaN(t));
-        if(finished.length){ finished.sort((a,b)=>b.t-a.t); return finished[0].m; }
-        return null;
+        if(finished.length){ finished.sort((a,b)=>b.t-a.t); return [finished[0].m]; }
+        return [];
     }
 
     // Fechas en hora Argentina (UTC-3) — mismo criterio que elnine para indexar partidos
@@ -673,45 +803,53 @@
         try {
             const all = await fetchAllSmart();
 
-            // Filtrar solo partidos del Mundial
-            // Acepta cualquier slug que contenga 'world-cup' para cubrir
-            // variantes como 'fifa-world-cup', 'fifa-world-cup-2026', etc.
             const WC_SLUGS = ['fifa-world-cup','fifa-world-cup-2026','world-cup-2026','world-cup'];
             const isWC = m => {
                 const s = (m.tournamentCalendarSlug||'').toLowerCase();
                 return WC_SLUGS.some(k=>s===k) || s.includes('world-cup');
             };
             const wc = all.filter(isWC);
-            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs disponibles: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
-            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.startTime} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
+            console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
+            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
 
+            let picked = CONFIG.autoMatch
+                ? pickBest(wc)
+                : (wc.find(m=>m.id===CONFIG.matchId) ? [wc.find(m=>m.id===CONFIG.matchId)] : []);
 
-            let match = CONFIG.autoMatch ? pickBest(wc) : wc.find(m=>m.id===CONFIG.matchId)||null;
+            if(!picked.length){ console.warn('⚠️ No hay partido del Mundial'); return; }
 
-            if(!match){ console.warn('⚠️ No hay partido del Mundial'); return; }
+            picked = await Promise.all(picked.map(m => m.status==='live' ? enrichLiveMatch(m) : m));
 
-            // Si cambió el partido, resetear estado
-            if(match.id !== CONFIG.matchId) {
-                console.info(`🔄 Nuevo partido: ${match.homeTeam.name} vs ${match.awayTeam.name} (${match.id})`);
-                CONFIG.matchId = match.id;
-                fired.goalKeys.clear();
-                fired.yH=0; fired.yA=0; fired.rH=0; fired.rA=0;
-                fired.ht=false; fired.ft=false;
-                prevYH=0; prevYA=0;
-                state.ready=false;
+            const newIds  = picked.map(m=>m.id).sort().join(',');
+            const prevIds = rotation.matches.map(m=>m.id).sort().join(',');
+
+            if(newIds !== prevIds) {
+                console.info(`🔄 Partidos: ${picked.map(m=>`${m.homeTeam.name} vs ${m.awayTeam.name}`).join(' | ')}`);
+                picked.forEach(m => { if(!rotation._readyMap[m.id]) rotation._readyMap[m.id] = false; });
+
+                const currentId = rotation.matches[rotation.index]?.id;
+                const newIndex  = picked.findIndex(m => m.id === currentId);
+                rotation.matches = picked;
+                rotation.index   = newIndex >= 0 ? newIndex : 0;
+
+                picked.length >= 2 ? startRotation() : stopRotation();
+            } else {
+                picked.forEach((fresh, i) => { rotation.matches[i] = fresh; });
             }
 
-            // Enriquecer siempre en partidos live con datos de /detail (score, minuto, eventos)
-            if(match.status==='live') {
-                match = await enrichLiveMatch(match);
-            }
+            checkGoalPriority();
 
-            renderMatch(match);
+            const best = highPriorityIndex();
+            if(rotation.matches.length >= 2 && best !== rotation.index) rotateTo(best);
+
+            rotation.matches.forEach((m, i) => {
+                if(!rotation._readyMap[m.id]) rotation._readyMap[m.id] = true;
+                if(i === rotation.index) { renderMatch(m); updateBadge(); }
+                checkEvents(m);
+                if(m.status==='live') fetchYellowCards(m.id);
+            });
+
             if(!state.ready) state.ready = true;
-            checkEvents(match);
-
-            // Amarillas en paralelo (no bloqueante)
-            if(match.status==='live') fetchYellowCards(match.id);
 
         } catch(err) {
             console.error('❌ poll error:', err);
