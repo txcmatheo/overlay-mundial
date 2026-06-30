@@ -127,6 +127,8 @@
         .event-card.red      { background: linear-gradient(135deg,#ff1a1a,#cc0000); color:#fff; }
         .event-card.halftime { background: linear-gradient(135deg,#1a1a2e,#16213e); color:#fff; border:2px solid #00ffcc; }
         .event-card.fulltime { background: linear-gradient(135deg,#0f3460,#533483); color:#fff; border:2px solid #ffe600; }
+        .event-card.penalty-winner { background: linear-gradient(135deg,#1a8a4a,#0d4a28); color:#fff; border:2px solid #ffd700; }
+        .event-icon img.event-flag { width: 40px; height: 26px; object-fit: cover; border-radius: 4px; box-shadow: 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.5); }
         .event-icon  { font-size: 36px; line-height: 1; flex-shrink: 0; }
         .event-body  { display: flex; flex-direction: column; }
         .event-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; }
@@ -135,6 +137,8 @@
         .scoreboard.flash-card { animation: sb-card 0.6s ease forwards; }
         .scoreboard.flash-ht   { animation: sb-ht   0.8s ease forwards; }
         .scoreboard.flash-ft   { animation: sb-ft   1.2s ease forwards; }
+        .scoreboard.flash-win  { animation: sb-win  1.6s ease forwards; }
+        @keyframes sb-win  { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 25%,75%{box-shadow:0 0 55px 16px rgba(255,215,0,.9)} 50%{box-shadow:0 0 80px 26px rgba(255,215,0,.55)} }
         @keyframes sb-goal { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 30%{box-shadow:0 0 40px 10px rgba(0,255,204,.9)} 60%{box-shadow:0 0 60px 18px rgba(0,255,204,.5)} }
         @keyframes sb-card { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 40%{box-shadow:0 0 35px 8px rgba(255,80,0,.8)} }
         @keyframes sb-ht   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 50%{box-shadow:0 0 40px 10px rgba(0,200,255,.7)} }
@@ -143,6 +147,19 @@
         /* ── TRANSICIÓN DE ALTERNANCIA ── */
         .overlay-row { transition: opacity 0.4s ease; }
         .overlay-row.fading { opacity: 0; }
+
+        /* ── SLOT ÚNICO DEBAJO DEL MARCADOR ──
+           Badge 2do partido, tanda de penales y panel de eventos comparten
+           el mismo lugar (apilados con position:absolute) para que nunca
+           se sumen márgenes entre sí. La prioridad de cuál se ve la decide
+           el JS (applyStackPriority): 1) badge 2do partido, 2) penales,
+           3) animaciones de eventos. */
+        .below-stack { position: relative; margin-top: 10px; width: fit-content; }
+        .below-stack > #match2-badge,
+        .below-stack > #penalty-wrap,
+        .below-stack > #event-panel {
+            position: absolute; top: 0; left: 0; margin-top: 0;
+        }
 
         /* ── BADGE SEGUNDO PARTIDO ── */
         #match2-badge {
@@ -163,6 +180,110 @@
         @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.3} }
         #match2-badge .badge-score { color: #00ffc8; }
         #match2-badge .badge-label { font-size: 12px; font-weight: 400; opacity: 0.5; margin-left: 4px; letter-spacing: 0; }
+
+        /* ══════════════ TANDA DE PENALES ══════════════ */
+        #penalty-wrap {
+            margin-top: 10px; width: fit-content; opacity: 0;
+            transform: translateY(-10px) scale(0.96);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+            pointer-events: none;
+        }
+        #penalty-wrap.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+
+        .penalty-board {
+            --home-a: #00ffc8; --home-b: #ffffff;
+            --away-a: #8a6bff; --away-b: #ffffff;
+            position: relative; isolation: isolate;
+            background: #0a0a0a; border-radius: 50px;
+            padding: 7px 16px 7px 20px; width: fit-content;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: flex; flex-direction: column; gap: 5px;
+        }
+        /* grid de fondo igual al scoreboard principal */
+        .penalty-board::before, .penalty-board::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 55%;
+            z-index: 0; pointer-events: none; opacity: 0.13; mix-blend-mode: screen;
+            background-image:
+                repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 14px),
+                repeating-linear-gradient(0deg,  currentColor 0 1px, transparent 1px 14px);
+        }
+        .penalty-board::before {
+            left: 0; color: var(--home-a); border-radius: 50px 0 0 50px;
+            -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent 100%);
+                    mask-image: linear-gradient(90deg, #000 55%, transparent 100%);
+        }
+        .penalty-board::after {
+            right: 0; color: var(--away-a); border-radius: 0 50px 50px 0;
+            -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent 100%);
+                    mask-image: linear-gradient(270deg, #000 55%, transparent 100%);
+        }
+        /* Anillo de acento igual al scoreboard */
+        .penalty-board .accent-line {
+            position: absolute; inset: -6px; border-radius: 58px; z-index: -1; pointer-events: none;
+            padding: 6px;
+            background: linear-gradient(90deg, var(--home-a), var(--home-b) 45%, var(--away-b) 55%, var(--away-a));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+                    mask-image: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    mask-composite: exclude;
+            filter: drop-shadow(0 0 4px var(--home-a)) drop-shadow(0 0 4px var(--away-a));
+            opacity: 0.9;
+            clip-path: inset(8px 0 0 0 round 58px);
+        }
+
+        /* Fila de cada equipo */
+        .penalty-row {
+            position: relative; z-index: 2;
+            display: flex; align-items: center; gap: 8px;
+        }
+        /* Info del equipo: bandera + dot + nombre */
+        .penalty-row .pen-team {
+            display: flex; align-items: center; gap: 6px;
+            min-width: 130px;
+        }
+        .penalty-row .pen-team .flag { width: 26px; height: 17px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
+        .penalty-row .pen-team .dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .penalty-row .pen-team .team-name { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 1.5px; white-space: nowrap; }
+
+        /* Marcador de penales — mismo estilo que .score-box del scoreboard */
+        .pen-score {
+            background: #00ffc8; color: #000;
+            font-size: 22px; font-weight: 900;
+            padding: 4px 10px; border-radius: 8px;
+            min-width: 32px; text-align: center; line-height: 1;
+            flex-shrink: 0;
+        }
+
+        /* Celdas de resultados */
+        .pen-cells { display: flex; gap: 5px; align-items: center; }
+
+        /* Base: cuadrado blanco con número negro = pendiente */
+        .pen-cell {
+            width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 900;
+            background: #ffffff; color: #000;
+            transition: transform 0.25s ease;
+        }
+        /* Anotado: círculo negro sobre fondo verde */
+        .pen-cell.scored {
+            background: #0db54a; color: #000; border-radius: 50%;
+            box-shadow: 0 0 7px rgba(13,181,74,0.5);
+        }
+        /* Fallado / atajado: X blanca sobre fondo rojo */
+        .pen-cell.missed {
+            background: #d6001c; color: #fff; border-radius: 50%;
+            box-shadow: 0 0 7px rgba(214,0,28,0.5);
+        }
+        /* Pendiente activo: cuadrado blanco parpadeante */
+        .pen-cell.pending {
+            background: #ffffff; color: #000;
+            animation: pen-blink 0.8s ease-in-out infinite;
+        }
+        @keyframes pen-blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .pen-cell.pop { animation: pen-pop 0.35s ease; }
+        @keyframes pen-pop { 0%{transform:scale(1)} 45%{transform:scale(1.5)} 100%{transform:scale(1)} }
     </style>
 </head>
 <body>
@@ -189,19 +310,47 @@
             </div>
         </div>
     </div>
-    <!-- Badge: segundo partido en vivo -->
-    <div id="match2-badge">
-        <div class="badge-dot"></div>
-        <span id="badge-text"></span>
-        <span class="badge-label">otro partido</span>
-    </div>
+    <!-- Slot único debajo del marcador: badge 2do partido > penales > eventos (prioridad) -->
+    <div class="below-stack">
+        <!-- Badge: segundo partido en vivo -->
+        <div id="match2-badge">
+            <div class="badge-dot"></div>
+            <span id="badge-text"></span>
+            <span class="badge-label">otro partido</span>
+        </div>
 
-    <div id="event-panel">
-        <div class="event-card" id="event-card">
-            <div class="event-icon" id="event-icon">⚽</div>
-            <div class="event-body">
-                <div class="event-title" id="event-title">GOL</div>
-                <div class="event-sub"   id="event-sub">Jugador</div>
+        <!-- Tanda de penales -->
+        <div id="penalty-wrap">
+            <div class="penalty-board" id="penalty-board">
+                <div class="accent-line"></div>
+                <div class="penalty-row" data-team="home">
+                    <div class="pen-team">
+                        <img class="flag" id="pen-flag-home" src="" alt="">
+                        <span class="dot dot-home"></span>
+                        <span class="team-name" id="pen-name-home">---</span>
+                    </div>
+                    <div class="pen-score" id="pen-score-home">0</div>
+                    <div class="pen-cells" id="pen-cells-home"></div>
+                </div>
+                <div class="penalty-row" data-team="away">
+                    <div class="pen-team">
+                        <img class="flag" id="pen-flag-away" src="" alt="">
+                        <span class="dot dot-away"></span>
+                        <span class="team-name" id="pen-name-away">---</span>
+                    </div>
+                    <div class="pen-score" id="pen-score-away">0</div>
+                    <div class="pen-cells" id="pen-cells-away"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="event-panel">
+            <div class="event-card" id="event-card">
+                <div class="event-icon" id="event-icon">⚽</div>
+                <div class="event-body">
+                    <div class="event-title" id="event-title">GOL</div>
+                    <div class="event-sub"   id="event-sub">Jugador</div>
+                </div>
             </div>
         </div>
     </div>
@@ -354,8 +503,239 @@
         row.style.setProperty('--away-b', ab);
     }
 
+    // ── TANDA DE PENALES ─────────────────────────────────────────
+    const PENALTY_NORMAL_ROUNDS = 5;
+
+    const penaltyState = {
+        home: { iso:'', rounds:[], name:'' },   // rounds: 'scored'|'missed'
+        away: { iso:'', rounds:[], name:'' },
+        active: false,
+        _finished: false,
+        matchId: null,   // a qué partido pertenece la tanda activa
+    };
+
+    const penScore = side => penaltyState[side].rounds.filter(r => r === 'scored').length;
+
+    // Home siempre va primero en cada ronda.
+    // hLen == aLen → turno de home; hLen > aLen → turno de away.
+    function penWhoseTurn() {
+        return penaltyState.home.rounds.length <= penaltyState.away.rounds.length ? 'home' : 'away';
+    }
+
+    // Devuelve el código del equipo ganador o null si la tanda sigue.
+    // Regla: nunca declarar ganador en mitad de una ronda salvo que sea
+    // matemáticamente imposible para el rival.
+    // En muerte súbita: esperar siempre el tiro de away antes de decidir.
+    function penCheckWinner() {
+        const hR = penaltyState.home.rounds, aR = penaltyState.away.rounds;
+        const hL = hR.length, aL = aR.length;
+        const hs = penScore('home'), as = penScore('away');
+
+        // ── Rondas normales ──────────────────────────────────────
+        if (hL <= PENALTY_NORMAL_ROUNDS && aL <= PENALTY_NORMAL_ROUNDS) {
+            const aRemain = PENALTY_NORMAL_ROUNDS - aL;
+            const hRemain = PENALTY_NORMAL_ROUNDS - hL;
+            if (hL === aL + 1) {
+                // Home pateó, away aún no en esta ronda
+                if (hs > as + aRemain) return penaltyState.home.iso;
+                return null;
+            }
+            if (hL === aL && hL > 0) {
+                if (hs > as + aRemain) return penaltyState.home.iso;
+                if (as > hs + hRemain) return penaltyState.away.iso;
+                if (hL >= PENALTY_NORMAL_ROUNDS && aL >= PENALTY_NORMAL_ROUNDS) {
+                    if (hs > as) return penaltyState.home.iso;
+                    if (as > hs) return penaltyState.away.iso;
+                    // Empate → muerte súbita
+                }
+            }
+            return null;
+        }
+
+        // ── Muerte súbita ────────────────────────────────────────
+        if (hL === aL + 1) return null; // esperar tiro de away
+        if (hL === aL && hL > PENALTY_NORMAL_ROUNDS) {
+            const idx = hL - 1;
+            const hLast = hR[idx], aLast = aR[idx];
+            if (hLast === 'scored' && aLast === 'missed') return penaltyState.home.iso;
+            if (aLast === 'scored' && hLast === 'missed') return penaltyState.away.iso;
+        }
+        return null;
+    }
+
+    function renderPenaltyCells(side, animateLast) {
+        const el = $(`pen-cells-${side}`);
+        const rounds = penaltyState[side].rounds;
+        const turn = penWhoseTurn();
+        let html = '';
+
+        // Separador visual entre rondas normales y muerte súbita
+        rounds.forEach((r, i) => {
+            if (i === PENALTY_NORMAL_ROUNDS) html += `<div class="pen-cell" style="width:2px;height:20px;background:rgba(255,255,255,.25);border-radius:2px;flex-shrink:0;"></div>`;
+            const isLast = animateLast && i === rounds.length - 1;
+            const cls = r === 'scored' ? 'scored' : 'missed';
+            html += `<div class="pen-cell ${cls}${isLast ? ' pop' : ''}"></div>`;
+        });
+
+        // Celda pendiente: SOLO si la tanda no terminó y es el turno de este equipo
+        if (!penaltyState._finished && turn === side) {
+            const nextNum = rounds.length + 1;
+            if (rounds.length === PENALTY_NORMAL_ROUNDS) html += `<div class="pen-cell" style="width:2px;height:20px;background:rgba(255,255,255,.25);border-radius:2px;flex-shrink:0;"></div>`;
+            html += `<div class="pen-cell pending">${nextNum}</div>`;
+        }
+
+        el.innerHTML = html;
+    }
+
+    function renderPenaltyBoard(animateSide) {
+        // Evaluar ganador ANTES de renderizar celdas para que _finished
+        // esté correcto y la celda pendiente no aparezca al terminar.
+        const winner = penCheckWinner();
+        if (winner) {
+            penaltyState._finished = true;
+        }
+        $('pen-score-home').textContent = penScore('home');
+        $('pen-score-away').textContent = penScore('away');
+        renderPenaltyCells('home', animateSide==='home');
+        renderPenaltyCells('away', animateSide==='away');
+    }
+
+    function applyPenaltyColors(hIso, aIso) {
+        const board = $('penalty-board');
+        const [ha,hb] = flagAccents(hIso);
+        const [aa,ab] = flagAccents(aIso);
+        board.style.setProperty('--home-a', ha);
+        board.style.setProperty('--home-b', hb);
+        board.style.setProperty('--away-a', aa);
+        board.style.setProperty('--away-b', ab);
+    }
+
+    // API pública: window.PenaltyShootout
+    // .start(homeIso, homeCode, awayIso, awayCode)
+    // .kick('home'|'away', 'scored'|'missed')
+    // .undo('home'|'away')
+    // .reset()  .show()  .hide()
+    const PenaltyShootout = {
+        start(homeIso, homeCode, awayIso, awayCode) {
+            penaltyState.home = { iso:homeIso, rounds:[] };
+            penaltyState.away = { iso:awayIso, rounds:[] };
+            penaltyState.active = true;
+            penaltyState._finished = false;
+            setFlag($('pen-flag-home'), homeIso);
+            setFlag($('pen-flag-away'), awayIso);
+            $('pen-name-home').textContent = homeCode || '---';
+            $('pen-name-away').textContent = awayCode || '---';
+            applyPenaltyColors(homeIso, awayIso);
+            renderPenaltyBoard();
+            $('penalty-wrap').classList.add('visible');
+            applyStackPriority();
+        },
+        kick(side, result) {
+            if (!penaltyState.active || !penaltyState[side]) return;
+            penaltyState[side].rounds.push(result === 'scored' ? 'scored' : 'missed');
+            renderPenaltyBoard(side);
+            try { result === 'scored' ? SFX.goal() : SFX.redCard(); } catch(e){}
+        },
+        undo(side) {
+            if (!penaltyState[side]) return;
+            penaltyState[side].rounds.pop();
+            penaltyState._finished = false;
+            renderPenaltyBoard();
+        },
+        reset() {
+            penaltyState.home.rounds = [];
+            penaltyState.away.rounds = [];
+            penaltyState._finished = false;
+            renderPenaltyBoard();
+        },
+        show() { penaltyState.active = true;  $('penalty-wrap').classList.add('visible');    renderPenaltyBoard(); applyStackPriority(); },
+        hide() { penaltyState.active = false; penaltyState.matchId = null; $('penalty-wrap').classList.remove('visible'); applyStackPriority(); },
+    };
+    window.PenaltyShootout = PenaltyShootout;
+
+    // Sincroniza automáticamente la tanda desde los datos de la API.
+    // Se llama en cada poll si el partido tiene penaltyShootout en el detalle.
+    function syncPenaltyFromAPI(m) {
+        const ps = m._penaltyShootout;
+
+        // Sin datos de tanda para ESTE partido: si el panel seguía visible
+        // de un partido anterior (típicamente porque pasamos al siguiente
+        // partido tras un cierre por penales), hay que ocultarlo.
+        if (!ps || !Array.isArray(ps.shots) || ps.shots.length === 0) {
+            if (penaltyState.active && penaltyState.matchId !== m.id) {
+                PenaltyShootout.hide();
+            }
+            return;
+        }
+
+        const [hIso, hCode] = flagInfo(m.homeTeam.name);
+        const [aIso, aCode] = flagInfo(m.awayTeam.name);
+        const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
+        const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
+
+        // (Re)inicializar el panel si no está activo o si pertenece a OTRO
+        // partido (p. ej. la ronda anterior también se fue a penales).
+        if (!penaltyState.active || penaltyState.matchId !== m.id) {
+            penaltyState.home = { iso: hIso, rounds: [], name: hn };
+            penaltyState.away = { iso: aIso, rounds: [], name: an };
+            penaltyState.active = true;
+            penaltyState._finished = false;
+            penaltyState.matchId = m.id;
+            setFlag($('pen-flag-home'), hIso);
+            setFlag($('pen-flag-away'), aIso);
+            $('pen-name-home').textContent = hn;
+            $('pen-name-away').textContent = an;
+            applyPenaltyColors(hIso, aIso);
+            $('penalty-wrap').classList.add('visible');
+        }
+
+        // Reconstruir rondas desde el array de shots (formato string: scored|missed)
+        penaltyState.home.rounds = ps.shots
+            .filter(s => s.teamSide === 'home')
+            .sort((a, b) => a.order - b.order)
+            .map(s => s.outcome === 'goal' ? 'scored' : 'missed');
+
+        penaltyState.away.rounds = ps.shots
+            .filter(s => s.teamSide === 'away')
+            .sort((a, b) => a.order - b.order)
+            .map(s => s.outcome === 'goal' ? 'scored' : 'missed');
+
+        // La tanda termino si el partido ya esta finalizado
+        penaltyState._finished = (m.status === 'finished');
+
+        renderPenaltyBoard();
+        applyStackPriority();
+
+        // Animación de ganador (solo una vez por partido)
+        checkPenaltyWinnerEvent(m, hn, an);
+    }
+
+    // Dispara la animación "ha pasado a la siguiente ronda" una sola vez
+    // por partido, en cuanto la tanda de penales determina un ganador.
+    function checkPenaltyWinnerEvent(m, hn, an) {
+        const fired = getFired(m.id);
+        if (fired.penWinner) return;
+
+        const winnerIso = penCheckWinner();
+        if (!winnerIso) return;
+
+        fired.penWinner = true;
+        const isHome = winnerIso === penaltyState.home.iso;
+        const winnerName = isHome ? hn : an;
+        const hs = penScore('home'), as = penScore('away');
+
+        showEvent({
+            type: 'penalty-winner',
+            iconFlag: winnerIso,
+            title: `¡${winnerName} HA PASADO A LA SIGUIENTE RONDA!`,
+            sub: `Tanda de penales: ${hs} — ${as}`,
+            sfx: SFX.roundWin,
+            flash: 'flash-win',
+        });
+    }
+
     // ── AUDIO (desactivado) ──────────────────────────────────────
-    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){} };
+    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){}, roundWin(){} };
 
     // ── UI REFS ──────────────────────────────────────────────────
     const $  = id => document.getElementById(id);
@@ -367,21 +747,54 @@
     function pulse(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'),500); }
 
     let evTimer = null;
-    function showEvent({type,icon,title,sub,sfx,flash}) {
+    function showEvent({type,icon,iconFlag,title,sub,sfx,flash}) {
         if(evTimer) clearTimeout(evTimer);
         sb.className='scoreboard'; void sb.offsetWidth; if(flash) sb.classList.add(flash);
         try { if(sfx) sfx(); } catch(e){}
         $('event-card').className=`event-card ${type}`;
-        $('event-icon').textContent=icon; $('event-title').textContent=title; $('event-sub').textContent=sub||'';
+        const iconEl = $('event-icon');
+        if (iconFlag) {
+            iconEl.innerHTML = `<img class="event-flag" src="https://flagcdn.com/w80/${iconFlag.toLowerCase()}.png" alt="">`;
+        } else {
+            iconEl.innerHTML = '';
+            iconEl.textContent = icon;
+        }
+        $('event-title').textContent=title; $('event-sub').textContent=sub||'';
         const p=$('event-panel'); p.classList.remove('visible'); void p.offsetWidth; p.classList.add('visible');
-        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); }, CONFIG.eventDurationMs);
+        applyStackPriority();
+        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); applyStackPriority(); }, CONFIG.eventDurationMs);
+    }
+
+    // ── PRIORIDAD DEL SLOT ÚNICO DEBAJO DEL MARCADOR ──────────────
+    // Orden: 1) badge de 2do partido, 2) tanda de penales, 3) animaciones
+    // de eventos (goles/tarjetas/HT). Mientras hay penales activos no debería
+    // haber más animaciones que la de fin de partido (ya suprimida arriba).
+    function applyStackPriority() {
+        const badgeEl   = $('match2-badge');
+        const penaltyEl = $('penalty-wrap');
+        const eventEl   = $('event-panel');
+
+        const badgeOn   = badgeEl.classList.contains('visible');
+        const penaltyOn = penaltyState.active && penaltyEl.classList.contains('visible');
+
+        // Reset: dejar que cada uno controle su propia visibilidad otra vez
+        badgeEl.style.display = '';
+        penaltyEl.style.removeProperty('display');
+        eventEl.style.removeProperty('display');
+
+        if (badgeOn) {
+            penaltyEl.style.display = 'none';
+            eventEl.style.display   = 'none';
+        } else if (penaltyOn) {
+            eventEl.style.display = 'none';
+        }
     }
 
     // ── ESTADO ───────────────────────────────────────────────────
     // ── ESTADO ───────────────────────────────────────────────────
     const firedMap = {};
     function getFired(id) {
-        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false, penWinner:false };
         return firedMap[id];
     }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
@@ -454,7 +867,7 @@
     function updateBadge() {
         const badge = document.getElementById('match2-badge');
         const txt   = document.getElementById('badge-text');
-        if(rotation.matches.length < 2) { badge.classList.remove('visible'); return; }
+        if(rotation.matches.length < 2) { badge.classList.remove('visible'); applyStackPriority(); return; }
         const other = rotation.matches[rotation.index === 0 ? 1 : 0];
         if(!other) return;
         const [,hCode] = flagInfo(other.homeTeam.name);
@@ -463,6 +876,7 @@
         const an = CONFIG.useFullNames ? other.awayTeam.name : aCode;
         txt.innerHTML = `${hn} <span class="badge-score">${other.homeScore??0}–${other.awayScore??0}</span> ${an}`;
         badge.classList.add('visible');
+        applyStackPriority();
     }
 
     // ── SEGUNDOS EN TIEMPO REAL ──────────────────────────────────
@@ -585,8 +999,8 @@
                 sfx:SFX.halfTime, flash:'flash-ht'});
         }
 
-        // Final
-        if(!fired.ft && m.status==='finished') {
+        // Final — suprimir si la tanda de penales está activa
+        if(!fired.ft && m.status==='finished' && !penaltyState.active) {
             fired.ft=true;
             showEvent({type:'fulltime', icon:'🏁', title:'FIN DEL PARTIDO',
                 sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
@@ -664,7 +1078,7 @@
             }
             return 'EN VIVO';
         }
-        if(m.status==='finished')  return 'FT';
+        if(m.status==='finished')  return penaltyState.active ? 'PEN' : 'FT';
         if(m.status==='postponed') return 'SUSP';
         return new Date(m.startTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     }
@@ -840,6 +1254,7 @@
                 match.homeTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='home').length;
                 match.awayTeamRedCards = (d.events||[]).filter(e=>e.type==='red'&&e.team==='away').length;
                 match._events = d.events || [];
+                if(d.penaltyShootout?.shots?.length) match._penaltyShootout = d.penaltyShootout;
                 break; // éxito, salir del loop
             } catch(e) { /* intentar siguiente URL */ }
         }
@@ -893,7 +1308,7 @@
 
             rotation.matches.forEach((m, i) => {
                 if(!rotation._readyMap[m.id]) rotation._readyMap[m.id] = true;
-                if(i === rotation.index) { renderMatch(m); updateBadge(); }
+                if(i === rotation.index) { renderMatch(m); updateBadge(); syncPenaltyFromAPI(m); }
                 checkEvents(m);
                 if(m.status==='live') fetchYellowCards(m.id);
             });
