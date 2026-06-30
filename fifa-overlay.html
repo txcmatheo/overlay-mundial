@@ -144,6 +144,19 @@
         .overlay-row { transition: opacity 0.4s ease; }
         .overlay-row.fading { opacity: 0; }
 
+        /* ── SLOT ÚNICO DEBAJO DEL MARCADOR ──
+           Badge 2do partido, tanda de penales y panel de eventos comparten
+           el mismo lugar (apilados con position:absolute) para que nunca
+           se sumen márgenes entre sí. La prioridad de cuál se ve la decide
+           el JS (applyStackPriority): 1) badge 2do partido, 2) penales,
+           3) animaciones de eventos. */
+        .below-stack { position: relative; margin-top: 10px; width: fit-content; }
+        .below-stack > #match2-badge,
+        .below-stack > #penalty-wrap,
+        .below-stack > #event-panel {
+            position: absolute; top: 0; left: 0; margin-top: 0;
+        }
+
         /* ── BADGE SEGUNDO PARTIDO ── */
         #match2-badge {
             display: none; align-items: center; gap: 10px;
@@ -293,44 +306,47 @@
             </div>
         </div>
     </div>
-    <!-- Badge: segundo partido en vivo -->
-    <div id="match2-badge">
-        <div class="badge-dot"></div>
-        <span id="badge-text"></span>
-        <span class="badge-label">otro partido</span>
-    </div>
+    <!-- Slot único debajo del marcador: badge 2do partido > penales > eventos (prioridad) -->
+    <div class="below-stack">
+        <!-- Badge: segundo partido en vivo -->
+        <div id="match2-badge">
+            <div class="badge-dot"></div>
+            <span id="badge-text"></span>
+            <span class="badge-label">otro partido</span>
+        </div>
 
-    <!-- Tanda de penales -->
-    <div id="penalty-wrap">
-        <div class="penalty-board" id="penalty-board">
-            <div class="accent-line"></div>
-            <div class="penalty-row" data-team="home">
-                <div class="pen-team">
-                    <img class="flag" id="pen-flag-home" src="" alt="">
-                    <span class="dot dot-home"></span>
-                    <span class="team-name" id="pen-name-home">---</span>
+        <!-- Tanda de penales -->
+        <div id="penalty-wrap">
+            <div class="penalty-board" id="penalty-board">
+                <div class="accent-line"></div>
+                <div class="penalty-row" data-team="home">
+                    <div class="pen-team">
+                        <img class="flag" id="pen-flag-home" src="" alt="">
+                        <span class="dot dot-home"></span>
+                        <span class="team-name" id="pen-name-home">---</span>
+                    </div>
+                    <div class="pen-score" id="pen-score-home">0</div>
+                    <div class="pen-cells" id="pen-cells-home"></div>
                 </div>
-                <div class="pen-score" id="pen-score-home">0</div>
-                <div class="pen-cells" id="pen-cells-home"></div>
-            </div>
-            <div class="penalty-row" data-team="away">
-                <div class="pen-team">
-                    <img class="flag" id="pen-flag-away" src="" alt="">
-                    <span class="dot dot-away"></span>
-                    <span class="team-name" id="pen-name-away">---</span>
+                <div class="penalty-row" data-team="away">
+                    <div class="pen-team">
+                        <img class="flag" id="pen-flag-away" src="" alt="">
+                        <span class="dot dot-away"></span>
+                        <span class="team-name" id="pen-name-away">---</span>
+                    </div>
+                    <div class="pen-score" id="pen-score-away">0</div>
+                    <div class="pen-cells" id="pen-cells-away"></div>
                 </div>
-                <div class="pen-score" id="pen-score-away">0</div>
-                <div class="pen-cells" id="pen-cells-away"></div>
             </div>
         </div>
-    </div>
 
-    <div id="event-panel">
-        <div class="event-card" id="event-card">
-            <div class="event-icon" id="event-icon">⚽</div>
-            <div class="event-body">
-                <div class="event-title" id="event-title">GOL</div>
-                <div class="event-sub"   id="event-sub">Jugador</div>
+        <div id="event-panel">
+            <div class="event-card" id="event-card">
+                <div class="event-icon" id="event-icon">⚽</div>
+                <div class="event-body">
+                    <div class="event-title" id="event-title">GOL</div>
+                    <div class="event-sub"   id="event-sub">Jugador</div>
+                </div>
             </div>
         </div>
     </div>
@@ -607,6 +623,7 @@
             applyPenaltyColors(homeIso, awayIso);
             renderPenaltyBoard();
             $('penalty-wrap').classList.add('visible');
+            applyStackPriority();
         },
         kick(side, result) {
             if (!penaltyState.active || !penaltyState[side]) return;
@@ -626,8 +643,8 @@
             penaltyState._finished = false;
             renderPenaltyBoard();
         },
-        show() { penaltyState.active = true;  $('penalty-wrap').classList.add('visible');    renderPenaltyBoard(); },
-        hide() { penaltyState.active = false; $('penalty-wrap').classList.remove('visible'); },
+        show() { penaltyState.active = true;  $('penalty-wrap').classList.add('visible');    renderPenaltyBoard(); applyStackPriority(); },
+        hide() { penaltyState.active = false; $('penalty-wrap').classList.remove('visible'); applyStackPriority(); },
     };
     window.PenaltyShootout = PenaltyShootout;
 
@@ -671,6 +688,7 @@
         penaltyState._finished = (m.status === 'finished');
 
         renderPenaltyBoard();
+        applyStackPriority();
     }
 
     // ── AUDIO ────────────────────────────────────────────────────
@@ -720,7 +738,33 @@
         $('event-card').className=`event-card ${type}`;
         $('event-icon').textContent=icon; $('event-title').textContent=title; $('event-sub').textContent=sub||'';
         const p=$('event-panel'); p.classList.remove('visible'); void p.offsetWidth; p.classList.add('visible');
-        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); }, CONFIG.eventDurationMs);
+        applyStackPriority();
+        evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); applyStackPriority(); }, CONFIG.eventDurationMs);
+    }
+
+    // ── PRIORIDAD DEL SLOT ÚNICO DEBAJO DEL MARCADOR ──────────────
+    // Orden: 1) badge de 2do partido, 2) tanda de penales, 3) animaciones
+    // de eventos (goles/tarjetas/HT). Mientras hay penales activos no debería
+    // haber más animaciones que la de fin de partido (ya suprimida arriba).
+    function applyStackPriority() {
+        const badgeEl   = $('match2-badge');
+        const penaltyEl = $('penalty-wrap');
+        const eventEl   = $('event-panel');
+
+        const badgeOn   = badgeEl.classList.contains('visible');
+        const penaltyOn = penaltyState.active && penaltyEl.classList.contains('visible');
+
+        // Reset: dejar que cada uno controle su propia visibilidad otra vez
+        badgeEl.style.display = '';
+        penaltyEl.style.removeProperty('display');
+        eventEl.style.removeProperty('display');
+
+        if (badgeOn) {
+            penaltyEl.style.display = 'none';
+            eventEl.style.display   = 'none';
+        } else if (penaltyOn) {
+            eventEl.style.display = 'none';
+        }
     }
 
     // ── ESTADO ───────────────────────────────────────────────────
@@ -803,7 +847,7 @@
     function updateBadge() {
         const badge = document.getElementById('match2-badge');
         const txt   = document.getElementById('badge-text');
-        if(rotation.matches.length < 2) { badge.classList.remove('visible'); return; }
+        if(rotation.matches.length < 2) { badge.classList.remove('visible'); applyStackPriority(); return; }
         const other = rotation.matches[rotation.index === 0 ? 1 : 0];
         if(!other) return;
         const [,hCode] = flagInfo(other.homeTeam.name);
@@ -812,6 +856,7 @@
         const an = CONFIG.useFullNames ? other.awayTeam.name : aCode;
         txt.innerHTML = `${hn} <span class="badge-score">${other.homeScore??0}–${other.awayScore??0}</span> ${an}`;
         badge.classList.add('visible');
+        applyStackPriority();
     }
 
 
