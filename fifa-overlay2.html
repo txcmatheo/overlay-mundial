@@ -127,6 +127,8 @@
         .event-card.red      { background: linear-gradient(135deg,#ff1a1a,#cc0000); color:#fff; }
         .event-card.halftime { background: linear-gradient(135deg,#1a1a2e,#16213e); color:#fff; border:2px solid #00ffcc; }
         .event-card.fulltime { background: linear-gradient(135deg,#0f3460,#533483); color:#fff; border:2px solid #ffe600; }
+        .event-card.penalty-winner { background: linear-gradient(135deg,#1a8a4a,#0d4a28); color:#fff; border:2px solid #ffd700; }
+        .event-icon img.event-flag { width: 40px; height: 26px; object-fit: cover; border-radius: 4px; box-shadow: 0 0 0 1px rgba(255,255,255,0.4), 0 2px 8px rgba(0,0,0,0.5); }
         .event-icon  { font-size: 36px; line-height: 1; flex-shrink: 0; }
         .event-body  { display: flex; flex-direction: column; }
         .event-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; line-height: 1.1; }
@@ -135,6 +137,8 @@
         .scoreboard.flash-card { animation: sb-card 0.6s ease forwards; }
         .scoreboard.flash-ht   { animation: sb-ht   0.8s ease forwards; }
         .scoreboard.flash-ft   { animation: sb-ft   1.2s ease forwards; }
+        .scoreboard.flash-win  { animation: sb-win  1.6s ease forwards; }
+        @keyframes sb-win  { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 25%,75%{box-shadow:0 0 55px 16px rgba(255,215,0,.9)} 50%{box-shadow:0 0 80px 26px rgba(255,215,0,.55)} }
         @keyframes sb-goal { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 30%{box-shadow:0 0 40px 10px rgba(0,255,204,.9)} 60%{box-shadow:0 0 60px 18px rgba(0,255,204,.5)} }
         @keyframes sb-card { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 40%{box-shadow:0 0 35px 8px rgba(255,80,0,.8)} }
         @keyframes sb-ht   { 0%,100%{box-shadow:0 4px 20px rgba(0,0,0,.5)} 50%{box-shadow:0 0 40px 10px rgba(0,200,255,.7)} }
@@ -503,10 +507,11 @@
     const PENALTY_NORMAL_ROUNDS = 5;
 
     const penaltyState = {
-        home: { iso:'', rounds:[] },   // rounds: 'scored'|'missed'
-        away: { iso:'', rounds:[] },
+        home: { iso:'', rounds:[], name:'' },   // rounds: 'scored'|'missed'
+        away: { iso:'', rounds:[], name:'' },
         active: false,
         _finished: false,
+        matchId: null,   // a qué partido pertenece la tanda activa
     };
 
     const penScore = side => penaltyState[side].rounds.filter(r => r === 'scored').length;
@@ -643,7 +648,7 @@
             renderPenaltyBoard();
         },
         show() { penaltyState.active = true;  $('penalty-wrap').classList.add('visible');    renderPenaltyBoard(); applyStackPriority(); },
-        hide() { penaltyState.active = false; $('penalty-wrap').classList.remove('visible'); applyStackPriority(); },
+        hide() { penaltyState.active = false; penaltyState.matchId = null; $('penalty-wrap').classList.remove('visible'); applyStackPriority(); },
     };
     window.PenaltyShootout = PenaltyShootout;
 
@@ -651,19 +656,30 @@
     // Se llama en cada poll si el partido tiene penaltyShootout en el detalle.
     function syncPenaltyFromAPI(m) {
         const ps = m._penaltyShootout;
-        if (!ps || !Array.isArray(ps.shots) || ps.shots.length === 0) return;
+
+        // Sin datos de tanda para ESTE partido: si el panel seguía visible
+        // de un partido anterior (típicamente porque pasamos al siguiente
+        // partido tras un cierre por penales), hay que ocultarlo.
+        if (!ps || !Array.isArray(ps.shots) || ps.shots.length === 0) {
+            if (penaltyState.active && penaltyState.matchId !== m.id) {
+                PenaltyShootout.hide();
+            }
+            return;
+        }
 
         const [hIso, hCode] = flagInfo(m.homeTeam.name);
         const [aIso, aCode] = flagInfo(m.awayTeam.name);
         const hn = CONFIG.useFullNames ? m.homeTeam.name : hCode;
         const an = CONFIG.useFullNames ? m.awayTeam.name : aCode;
 
-        // Inicializar el panel si aún no está activo
-        if (!penaltyState.active) {
-            penaltyState.home = { iso: hIso, rounds: [] };
-            penaltyState.away = { iso: aIso, rounds: [] };
+        // (Re)inicializar el panel si no está activo o si pertenece a OTRO
+        // partido (p. ej. la ronda anterior también se fue a penales).
+        if (!penaltyState.active || penaltyState.matchId !== m.id) {
+            penaltyState.home = { iso: hIso, rounds: [], name: hn };
+            penaltyState.away = { iso: aIso, rounds: [], name: an };
             penaltyState.active = true;
             penaltyState._finished = false;
+            penaltyState.matchId = m.id;
             setFlag($('pen-flag-home'), hIso);
             setFlag($('pen-flag-away'), aIso);
             $('pen-name-home').textContent = hn;
@@ -688,10 +704,37 @@
 
         renderPenaltyBoard();
         applyStackPriority();
+
+        // Animación de ganador (solo una vez por partido)
+        checkPenaltyWinnerEvent(m, hn, an);
     }
 
     // ── AUDIO (desactivado) ──────────────────────────────────────
-    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){} };
+    const SFX = { goal(){}, yellowCard(){}, redCard(){}, halfTime(){}, fullTime(){}, roundWin(){} };
+
+    // Dispara la animación "ha pasado a la siguiente ronda" una sola vez
+    // por partido, en cuanto la tanda de penales determina un ganador.
+    function checkPenaltyWinnerEvent(m, hn, an) {
+        const fired = getFired(m.id);
+        if (fired.penWinner) return;
+
+        const winnerIso = penCheckWinner();
+        if (!winnerIso) return;
+
+        fired.penWinner = true;
+        const isHome = winnerIso === penaltyState.home.iso;
+        const winnerName = isHome ? hn : an;
+        const hs = penScore('home'), as = penScore('away');
+
+        showEvent({
+            type: 'penalty-winner',
+            iconFlag: winnerIso,
+            title: `¡${winnerName} HA PASADO A LA SIGUIENTE RONDA!`,
+            sub: `Tanda de penales: ${hs} — ${as}`,
+            sfx: SFX.roundWin,
+            flash: 'flash-win',
+        });
+    }
 
     // ── UI REFS ──────────────────────────────────────────────────
     const $  = id => document.getElementById(id);
@@ -703,12 +746,19 @@
     function pulse(el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'),500); }
 
     let evTimer = null;
-    function showEvent({type,icon,title,sub,sfx,flash}) {
+    function showEvent({type,icon,iconFlag,title,sub,sfx,flash}) {
         if(evTimer) clearTimeout(evTimer);
         sb.className='scoreboard'; void sb.offsetWidth; if(flash) sb.classList.add(flash);
         try { if(sfx) sfx(); } catch(e){}
         $('event-card').className=`event-card ${type}`;
-        $('event-icon').textContent=icon; $('event-title').textContent=title; $('event-sub').textContent=sub||'';
+        const iconEl = $('event-icon');
+        if (iconFlag) {
+            iconEl.innerHTML = `<img class="event-flag" src="https://flagcdn.com/w80/${iconFlag.toLowerCase()}.png" alt="">`;
+        } else {
+            iconEl.innerHTML = '';
+            iconEl.textContent = icon;
+        }
+        $('event-title').textContent=title; $('event-sub').textContent=sub||'';
         const p=$('event-panel'); p.classList.remove('visible'); void p.offsetWidth; p.classList.add('visible');
         applyStackPriority();
         evTimer=setTimeout(()=>{ p.classList.remove('visible'); sb.classList.remove(flash); applyStackPriority(); }, CONFIG.eventDurationMs);
@@ -743,7 +793,7 @@
     // ── ESTADO ───────────────────────────────────────────────────
     const firedMap = {};
     function getFired(id) {
-        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false };
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false, penWinner:false };
         return firedMap[id];
     }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
