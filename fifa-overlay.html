@@ -231,7 +231,7 @@
 
         /* Marcador de penales — mismo estilo que .score-box del scoreboard */
         .pen-score {
-            background: #1e90ff; color: #000;
+            background: #00ffc8; color: #000;
             font-size: 22px; font-weight: 900;
             padding: 4px 10px; border-radius: 8px;
             min-width: 32px; text-align: center; line-height: 1;
@@ -553,8 +553,7 @@
             if (i === PENALTY_NORMAL_ROUNDS) html += `<div class="pen-cell" style="width:2px;height:20px;background:rgba(255,255,255,.25);border-radius:2px;flex-shrink:0;"></div>`;
             const isLast = animateLast && i === rounds.length - 1;
             const cls = r === 'scored' ? 'scored' : 'missed';
-            const icon = r === 'scored' ? '●' : '✕';
-            html += `<div class="pen-cell ${cls}${isLast ? ' pop' : ''}">${icon}</div>`;
+            html += `<div class="pen-cell ${cls}${isLast ? ' pop' : ''}"></div>`;
         });
 
         // Celda pendiente: SOLO si la tanda no terminó y es el turno de este equipo
