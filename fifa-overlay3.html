@@ -794,7 +794,7 @@
     // ── ESTADO ───────────────────────────────────────────────────
     const firedMap = {};
     function getFired(id) {
-        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, ft:false, penWinner:false };
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, eht:false, ft:false, penWinner:false };
         return firedMap[id];
     }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
@@ -948,9 +948,18 @@
         });
 
         // Medio tiempo
-        if(!fired.ht && m.period==='HT') {
+        const per = (m.period||'').toString().trim().toUpperCase();
+        if(!fired.ht && per==='HT') {
             fired.ht=true;
             showEvent({type:'halftime', icon:'⏸️', title:'MEDIO TIEMPO',
+                sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
+                sfx:SFX.halfTime, flash:'flash-ht'});
+        }
+
+        // Medio tiempo de la prórroga (Extra Half Time)
+        if(!fired.eht && per==='EHT') {
+            fired.eht=true;
+            showEvent({type:'halftime', icon:'⏸️', title:'DESCANSO PRÓRROGA',
                 sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
                 sfx:SFX.halfTime, flash:'flash-ht'});
         }
@@ -1023,8 +1032,10 @@
 
     // ── SCOREBOARD UI ────────────────────────────────────────────
     function formatClock(m) {
+        const per = (m.period||'').toString().trim().toUpperCase();
         if(m.status==='live') {
-            if(m.period==='HT') return 'MT';
+            if(per==='HT') return 'MT';
+            if(per==='EHT') return 'MT PR';
             if(m.minute!=null) {
                 return m.addedMinute ? `${m.minute}+${m.addedMinute}'` : `${m.minute}'`;
             }
@@ -1073,7 +1084,17 @@
         const now = Date.now();
         const SLOT_WINDOW_MS = 10 * 60 * 1000;
 
-        const live = matches.filter(m=>m.status==='live');
+        // OJO: el endpoint de schedule (lista) a veces reporta un status distinto
+        // de 'live' durante cortes de partido (ET, descanso de prórroga, etc.).
+        // Para no perder el partido de la rotación en esos cortes, se considera
+        // "en curso" a todo lo que no esté explícitamente finalizado/suspendido
+        // y ya haya arrancado.
+        const live = matches.filter(m => {
+            if(m.status==='live') return true;
+            if(m.status==='finished' || m.status==='postponed') return false;
+            const t = new Date(m.startTime).getTime();
+            return !isNaN(t) && t<=now;
+        });
         if(live.length){ live.sort((a,b)=>(b.minute??0)-(a.minute??0)); return live.slice(0,2); }
 
         const pending = matches
@@ -1225,7 +1246,7 @@
             };
             const wc = all.filter(isWC);
             console.log(`📅 ${new Date().toISOString()} | Mundial: ${wc.length} partidos | slugs: ${[...new Set(all.map(m=>m.tournamentCalendarSlug))].join(', ')}`);
-            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'}`));
+            wc.forEach(m=>console.log(`  [${m.status}] ${m.homeTeam.name} vs ${m.awayTeam.name} | ${m.homeScore??'-'}:${m.awayScore??'-'} min:${m.minute??'-'} period:${m.period??'-'}`));
 
             let picked = CONFIG.autoMatch
                 ? pickBest(wc)
@@ -1233,7 +1254,15 @@
 
             if(!picked.length){ console.warn('⚠️ No hay partido del Mundial'); return; }
 
-            picked = await Promise.all(picked.map(m => m.status==='live' ? enrichLiveMatch(m) : m));
+            // Enriquecer partidos en curso en paralelo.
+            // Antes solo se enriquecía si m.status==='live', pero durante cortes
+            // como el descanso de la prórroga (EHT) el status de la lista puede
+            // venir distinto de 'live', y entonces nunca se pedía el detalle
+            // que trae el campo "period" real (HT/EHT). Se enriquece siempre
+            // que el partido no esté ya finalizado o suspendido.
+            picked = await Promise.all(picked.map(m =>
+                (m.status!=='finished' && m.status!=='postponed') ? enrichLiveMatch(m) : m
+            ));
 
             const newIds  = picked.map(m=>m.id).sort().join(',');
             const prevIds = rotation.matches.map(m=>m.id).sort().join(',');
