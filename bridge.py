@@ -60,15 +60,18 @@ def _fetch_schedule(date_str):
 
 def _build_matches_response():
     """
-    Pide ayer + hoy + mañana en hora Argentina (que es como elnine indexa).
+    Pide ayer + hoy + varios días hacia adelante en hora Argentina (que es
+    como elnine indexa). Antes solo pedía "mañana", pero entre partidos del
+    Mundial pueden pasar 2-3 días (octavos/cuartos/semis), así que con esa
+    ventana tan chica el próximo partido nunca aparecía y el overlay se
+    quedaba mostrando el último resultado finalizado. Se amplía a 8 días
+    hacia adelante para cubrir esos huecos con margen.
     Retorna también info de debug.
     """
+    DAYS_AHEAD = 8
     now_ar = datetime.now(AR_TZ)
-    dates = [
-        (now_ar - timedelta(days=1)).strftime("%Y-%m-%d"),
-        now_ar.strftime("%Y-%m-%d"),
-        (now_ar + timedelta(days=1)).strftime("%Y-%m-%d"),
-    ]
+    dates = [(now_ar - timedelta(days=1)).strftime("%Y-%m-%d"), now_ar.strftime("%Y-%m-%d")]
+    dates += [(now_ar + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, DAYS_AHEAD + 1)]
 
     seen       = set()
     all_matches = []
@@ -144,12 +147,10 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_debug(self):
         """Devuelve info detallada de qué ve elnine para cada fecha."""
         log("GET /debug")
+        DAYS_AHEAD = 8
         now_ar = datetime.now(AR_TZ)
-        dates = [
-            (now_ar - timedelta(days=1)).strftime("%Y-%m-%d"),
-            now_ar.strftime("%Y-%m-%d"),
-            (now_ar + timedelta(days=1)).strftime("%Y-%m-%d"),
-        ]
+        dates = [(now_ar - timedelta(days=1)).strftime("%Y-%m-%d"), now_ar.strftime("%Y-%m-%d")]
+        dates += [(now_ar + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, DAYS_AHEAD + 1)]
         result = {
             "server_time_utc": datetime.now(timezone.utc).isoformat(),
             "server_time_ar":  now_ar.isoformat(),
