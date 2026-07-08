@@ -1075,6 +1075,15 @@
     }
 
     // ── SCOREBOARD UI ────────────────────────────────────────────
+    // Convierte una fecha a su string YYYY-MM-DD en hora Argentina (UTC-3),
+    // para poder comparar el día del partido con el de hoy.
+    function arDateStr(d) {
+        const AR_OFFSET = -3 * 60; // minutos
+        const x = new Date(d);
+        x.setMinutes(x.getMinutes() + AR_OFFSET - x.getTimezoneOffset());
+        return x.toISOString().slice(0,10);
+    }
+
     function formatClock(m) {
         const per = (m.period||'').toString().trim().toUpperCase();
         if(m.status==='live') {
@@ -1091,7 +1100,23 @@
         }
         if(m.status==='finished')  return penaltyState.active ? 'PEN' : 'FT';
         if(m.status==='postponed') return 'SUSP';
-        return new Date(m.startTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+
+        // Partido todavía no empezó: si es de otro día (hora Argentina),
+        // anteponemos "Mañana"/"Pasado mañana" o la fecha, en vez de solo la hora.
+        const start    = new Date(m.startTime);
+        const hora     = start.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        const matchDay = arDateStr(start);
+        const today    = arDateStr(new Date());
+
+        if(matchDay === today) return hora;
+
+        const diffDias = Math.round((new Date(matchDay) - new Date(today)) / 86400000);
+        if(diffDias === 1) return `Mañana ${hora}`;
+        if(diffDias === 2) return `Pasado mañana ${hora}`;
+
+        // Más de dos días de diferencia (no debería pasar salvo algo raro): mostrar fecha corta
+        const [, mo, da] = matchDay.split('-');
+        return `${da}/${mo} ${hora}`;
     }
 
     function renderMatch(m) {
