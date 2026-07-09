@@ -1056,10 +1056,13 @@
     // Convierte una fecha a su string YYYY-MM-DD en hora Argentina (UTC-3),
     // mismo criterio que arDates()/elnine para poder comparar días.
     function arDateStr(d) {
-        const AR_OFFSET = -3 * 60; // minutos
-        const x = new Date(d);
-        x.setMinutes(x.getMinutes() + AR_OFFSET - x.getTimezoneOffset());
-        return x.toISOString().slice(0,10);
+        // en-CA da formato YYYY-MM-DD. Usar timeZone explícito evita depender
+        // de la zona horaria del sistema donde corre el navegador/OBS: antes
+        // la fórmula manual asumía que la máquina estaba en UTC+0, y si el
+        // reloj local está en otro huso (ej. Colombia UTC-5) el cálculo de
+        // "hoy" quedaba desfasado varias horas, mostrando "Mañana" en
+        // partidos que en Argentina ya eran de hoy.
+        return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
     }
 
     function formatClock(m) {
@@ -1173,13 +1176,12 @@
 
     // Fechas en hora Argentina (UTC-3) — mismo criterio que elnine para indexar partidos
     function arDates() {
-        const AR_OFFSET = -3 * 60; // minutos
+        // Mismo fix que arDateStr: usar timeZone explícito en vez de la
+        // fórmula manual que asumía navegador en UTC+0.
         const now = new Date();
-        const toAR = d => { const x = new Date(d); x.setMinutes(x.getMinutes() + AR_OFFSET - x.getTimezoneOffset()); return x; };
-        const fmt  = d => toAR(d).toISOString().slice(0,10);
         const y = new Date(now); y.setDate(now.getDate()-1);
         const t = new Date(now); t.setDate(now.getDate()+1);
-        return [fmt(y), fmt(now), fmt(t)];
+        return [arDateStr(y), arDateStr(now), arDateStr(t)];
     }
 
     // Llama directamente a elnine (funciona desde el browser, CORS está abierto)
