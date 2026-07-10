@@ -364,7 +364,7 @@
     //  OBS:     agregar como "Browser Source"
     // ══════════════════════════════════════════════════════════════
     // ▼▼▼ Cambiá esta URL por la de tu bridge en Render ▼▼▼
-    const BRIDGE_URL = 'https://overlay-mundial.onrender.com';
+    const BRIDGE_URL = 'https://overlay-mundial.matheogonpy.workers.dev'; // Cloudflare Worker (Render bloqueado con 403 por IP)
     // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     // Bridges a probar en orden: local (si estás corriendo bridge.py) y Render.
@@ -1213,8 +1213,8 @@
     async function fetchAllSmart() {
         const strategies = [
             ['bridge-local',  () => fetchAllViaBridge(LOCAL_BRIDGE)],
-            ['elnine-directo', fetchAllDirect],
             ['bridge-render', () => fetchAllViaBridge(BRIDGE_URL)],
+            ['elnine-directo', fetchAllDirect],
         ];
         for(const [name, fn] of strategies) {
             try {

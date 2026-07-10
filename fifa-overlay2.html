@@ -364,7 +364,7 @@
     //  OBS:     agregar como "Browser Source"
     // ══════════════════════════════════════════════════════════════
     // ▼▼▼ Cambiá esta URL por la de tu bridge en Render ▼▼▼
-    const BRIDGE_URL = 'https://overlay-mundial.onrender.com';
+    const BRIDGE_URL = 'https://overlay-mundial.matheogonpy.workers.dev'; // Cloudflare Worker (Render bloqueado con 403 por IP)
     // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     // Bridges a probar en orden: local (si estás corriendo bridge.py) y Render.
@@ -1256,14 +1256,64 @@
         return all;
     }
 
-    // Intenta, en orden: bridge local → elnine directo → bridge de Render.
-    // El primero que responda sin lanzar error (incluso con 0 partidos
-    // legítimos) gana. Errores (CORS, connection refused, etc.) pasan al siguiente.
+    // ── Proxies CORS públicos ───────────────────────────────────────────
+    // El bridge propio en Render está siendo bloqueado por elnine (403
+    // Forbidden a nivel de IP/datacenter — confirmado vía /debug). Como
+    // fallback intermedio, probamos varios proxies CORS públicos de
+    // terceros: al correr desde IPs distintas (y rotar), tienen más
+    // chances de no estar en la misma lista negra. Se prueban en paralelo
+    // por fecha, igual que fetchAllDirect, pero pasando por el proxy.
+    const CORS_PROXIES = [
+        // allOrigins: pass-through crudo, no envuelve en JSON.
+        u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        // corsproxy.io: también pass-through crudo.
+        u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+        // codetabs: pass-through crudo.
+        u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
+    ];
+
+    async function fetchScheduleDateViaProxy(dateStr, buildProxyUrl) {
+        const target = `https://api.elnine.com.ar/schedule?date=${dateStr}&_t=${Date.now()}`;
+        const r = await fetch(buildProxyUrl(target), {cache:'no-store'});
+        if(!r.ok) throw new Error(`proxy HTTP ${r.status}`);
+        const data = await r.json();
+        return data.matches || [];
+    }
+
+    async function fetchAllViaProxy(buildProxyUrl) {
+        const dates = arDates();
+        const results = await Promise.allSettled(
+            dates.map(d => fetchScheduleDateViaProxy(d, buildProxyUrl))
+        );
+        const seen = new Set(), all = [];
+        let okCount = 0;
+        results.forEach((r, i) => {
+            if(r.status==='fulfilled') {
+                okCount++;
+                for(const m of r.value) {
+                    if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
+                }
+            } else {
+                console.warn(`⚠️ fetchScheduleDateViaProxy(${dates[i]}) falló:`, r.reason);
+            }
+        });
+        if(okCount === 0) throw new Error('fetchAllViaProxy: las 3 fechas fallaron');
+        return all;
+    }
+
+    // Intenta, en orden: bridge local → bridge de Cloudflare (confiable,
+    // ver /debug) → elnine directo (casi siempre bloqueado por CORS en el
+    // browser, pero gratis probarlo) → proxies CORS públicos como último
+    // recurso. El primero que responda sin lanzar error (incluso con 0
+    // partidos legítimos) gana.
     async function fetchAllSmart() {
         const strategies = [
-            ['bridge-local',  () => fetchAllViaBridge(LOCAL_BRIDGE)],
+            ['bridge-local',   () => fetchAllViaBridge(LOCAL_BRIDGE)],
+            ['bridge-render',  () => fetchAllViaBridge(BRIDGE_URL)],
             ['elnine-directo', fetchAllDirect],
-            ['bridge-render', () => fetchAllViaBridge(BRIDGE_URL)],
+            ...CORS_PROXIES.map((buildUrl, i) =>
+                [`proxy-${i}`, () => fetchAllViaProxy(buildUrl)]
+            ),
         ];
         for(const [name, fn] of strategies) {
             try {
