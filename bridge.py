@@ -28,32 +28,55 @@ def log(msg):
 
 
 def _proxy_get(url):
+    # Headers más "de navegador": algunos backends (Cloudflare, anti-bot,
+    # WAFs) sirven una página de bloqueo con status 200 y cuerpo JSON/HTML
+    # distinto cuando el User-Agent/Referer no parece un browser real, o
+    # cuando la IP es de un datacenter (como las de Render). Ampliamos los
+    # headers para parecernos más a un fetch() hecho desde el propio sitio
+    # de elnine.
     req = urllib.request.Request(url, headers={
-        "User-Agent":    "Mozilla/5.0 (overlay-bridge/2.0)",
-        "Accept":        "application/json",
-        "Cache-Control": "no-cache",
-        "Pragma":        "no-cache",
+        "User-Agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept":           "application/json, text/plain, */*",
+        "Accept-Language":  "es-AR,es;q=0.9,en;q=0.8",
+        "Cache-Control":    "no-cache",
+        "Pragma":           "no-cache",
+        "Referer":          "https://api.elnine.com.ar/",
+        "Origin":           "https://api.elnine.com.ar",
     })
     with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.status, resp.read()
+        return resp.status, resp.read(), dict(resp.getheaders())
 
 
 def _fetch_schedule(date_str):
     """Pide el schedule de una fecha a elnine. Devuelve (matches, error_str)."""
     url = f"{API_ROOT}/schedule?date={date_str}&_t={int(datetime.now().timestamp())}"
     try:
-        status, raw = _proxy_get(url)
+        status, raw, headers = _proxy_get(url)
         if status != 200:
             return [], f"HTTP {status}"
-        data = json.loads(raw)
-        matches = data.get("matches", [])
-        return matches, None
+        content_type = headers.get("Content-Type", "")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # No es JSON -> casi seguro una página de bloqueo/challenge.
+            snippet = raw[:200].decode("utf-8", errors="replace")
+            log(f"  ⚠️ {date_str}: respuesta no-JSON (Content-Type={content_type}) → {snippet!r}")
+            return [], f"NonJSON: content-type={content_type} body={snippet!r}"
+        if "matches" not in data:
+            # JSON válido pero sin la forma esperada: podría ser un bloqueo
+            # disfrazado de JSON ({"error":...}, {"message":"blocked"}, etc.)
+            # o un cambio de schema en la API. Antes esto se devolvía como
+            # matches=[] SIN error, y el overlay lo tomaba como "0 partidos
+            # legítimos" en vez de como una falla real.
+            snippet = json.dumps(data)[:200]
+            log(f"  ⚠️ {date_str}: JSON sin clave 'matches' → {snippet}")
+            return [], f"UnexpectedSchema: keys={list(data.keys())} body={snippet}"
+        return data["matches"], None
     except urllib.error.URLError as e:
         return [], f"URLError: {e.reason}"
     except urllib.error.HTTPError as e:
         return [], f"HTTPError: {e.code}"
-    except json.JSONDecodeError as e:
-        return [], f"JSONError: {e}"
     except Exception as e:
         return [], f"Error: {type(e).__name__}: {e}"
 
@@ -82,6 +105,7 @@ def _build_matches_response():
         "per_date":        {},
     }
 
+    error_count = 0
     for d in dates:
         matches, err = _fetch_schedule(d)
         wc = [m for m in matches if "world-cup" in m.get("tournamentCalendarSlug", "").lower()]
@@ -92,6 +116,7 @@ def _build_matches_response():
             "slugs":     list({m.get("tournamentCalendarSlug", "") for m in matches}),
         }
         if err:
+            error_count += 1
             log(f"  {d} → ERROR: {err}")
         else:
             log(f"  {d} → {len(matches)} partidos, {len(wc)} del Mundial")
@@ -101,6 +126,12 @@ def _build_matches_response():
                 seen.add(m["id"])
                 all_matches.append(m)
 
+    # Si TODAS las fechas fallaron, no devolver un 200 con items=[] — eso
+    # el overlay lo interpreta como "0 partidos legítimos" y deja de
+    # intentar otras estrategias (bridge-render es la última en la cadena).
+    # Se marca explícitamente para que el handler pueda responder distinto.
+    debug_info["all_dates_failed"] = (error_count == len(dates))
+
     # Agrupar por slug para el formato que espera el HTML
     groups = {}
     for m in all_matches:
@@ -108,7 +139,7 @@ def _build_matches_response():
         groups.setdefault(slug, []).append(m)
 
     items = [{"tournamentCalendarSlug": s, "matches": ms} for s, ms in groups.items()]
-    return json.dumps({"items": items, "_debug": debug_info}).encode("utf-8")
+    return json.dumps({"items": items, "_debug": debug_info}).encode("utf-8"), debug_info["all_dates_failed"]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -199,8 +230,11 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_matches(self):
         log("GET /match — consultando elnine...")
         try:
-            data = _build_matches_response()
-            self.send_response(200)
+            data, all_failed = _build_matches_response()
+            # 502 en vez de 200 cuando TODAS las fechas fallaron: así el
+            # overlay (fetchAllViaBridge lanza en !r.ok) sigue probando
+            # otras fuentes en vez de quedarse con un "0 partidos" falso.
+            self.send_response(502 if all_failed else 200)
             self._cors()
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
