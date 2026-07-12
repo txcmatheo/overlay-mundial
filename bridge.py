@@ -10,11 +10,11 @@ import json
 import os
 import re
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from curl_cffi import requests as curl_requests
 
 PORT     = int(os.environ.get("PORT", 8001))
 API_ROOT = "https://api.elnine.com.ar"
@@ -28,24 +28,25 @@ def log(msg):
 
 
 def _proxy_get(url):
-    # Headers más "de navegador": algunos backends (Cloudflare, anti-bot,
-    # WAFs) sirven una página de bloqueo con status 200 y cuerpo JSON/HTML
-    # distinto cuando el User-Agent/Referer no parece un browser real, o
-    # cuando la IP es de un datacenter (como las de Render). Ampliamos los
-    # headers para parecernos más a un fetch() hecho desde el propio sitio
-    # de elnine.
-    req = urllib.request.Request(url, headers={
-        "User-Agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept":           "application/json, text/plain, */*",
-        "Accept-Language":  "es-AR,es;q=0.9,en;q=0.8",
-        "Cache-Control":    "no-cache",
-        "Pragma":           "no-cache",
-        "Referer":          "https://api.elnine.com.ar/",
-        "Origin":           "https://api.elnine.com.ar",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.status, resp.read(), dict(resp.getheaders())
+    # elnine (o el WAF/Cloudflare que la protege) bloquea por fingerprint
+    # TLS/HTTP, no solo por headers: urllib/requests estándar de Python
+    # tienen un handshake fácilmente detectable como "no navegador",
+    # sin importar qué User-Agent le pongamos. curl_cffi con
+    # impersonate="chrome124" replica el handshake real de Chrome y
+    # esquiva ese tipo de bloqueo.
+    resp = curl_requests.get(
+        url,
+        impersonate="chrome124",
+        headers={
+            "Accept":          "application/json, text/plain, */*",
+            "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+            "Cache-Control":   "no-cache",
+            "Pragma":          "no-cache",
+            "Referer":         "https://elnine.com.ar/",
+        },
+        timeout=15,
+    )
+    return resp.status_code, resp.content, dict(resp.headers)
 
 
 def _fetch_schedule(date_str):
@@ -73,10 +74,8 @@ def _fetch_schedule(date_str):
             log(f"  ⚠️ {date_str}: JSON sin clave 'matches' → {snippet}")
             return [], f"UnexpectedSchema: keys={list(data.keys())} body={snippet}"
         return data["matches"], None
-    except urllib.error.URLError as e:
-        return [], f"URLError: {e.reason}"
-    except urllib.error.HTTPError as e:
-        return [], f"HTTPError: {e.code}"
+    except curl_requests.errors.RequestsError as e:
+        return [], f"RequestsError: {e}"
     except Exception as e:
         return [], f"Error: {type(e).__name__}: {e}"
 
@@ -150,8 +149,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        path = urllib.parse.urlparse(self.path).path
-        qs   = urllib.parse.urlparse(self.path).query
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        qs   = parsed.query
 
         if path == "/match":
             self._handle_matches()
@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
         url = f"{API_ROOT}/schedule?{qs}&_t={int(datetime.now().timestamp())}"
         log(f"GET /schedule → {url}")
         try:
-            status, data = _proxy_get(url)
+            status, data, _ = _proxy_get(url)
             self.send_response(status)
             self._cors()
             self.send_header("Content-Type", "application/json")
@@ -248,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
         url = f"{API_ROOT}/match/{match_id}?_t={int(datetime.now().timestamp())}"
         log(f"GET /detail/{match_id}")
         try:
-            status, data = _proxy_get(url)
+            status, data, _ = _proxy_get(url)
             self.send_response(status)
             self._cors()
             self.send_header("Content-Type", "application/json")
@@ -262,7 +262,7 @@ class Handler(BaseHTTPRequestHandler):
         url = f"{API_ROOT}/match/{match_id}/stats?_t={int(datetime.now().timestamp())}"
         log(f"GET /stats/{match_id}")
         try:
-            status, data = _proxy_get(url)
+            status, data, _ = _proxy_get(url)
             self.send_response(status)
             self._cors()
             self.send_header("Content-Type", "application/json")
