@@ -1,354 +1,252 @@
-"""
-Bridge CORS-proxy para el overlay del Mundial.
-Fuente de datos: worldcup26.ir (rezarahiminia/worldcup2026) — elnine.com.ar
-ya NO se usa (bloqueaba con anti-bot).
+"""Free CORS bridge for the World Cup overlay.
 
-Diseñado para correr en Render (o cualquier host con Python).
-
-Variables de entorno:
-  PORT          → Render la setea automáticamente (default 8001 local)
-  API_EMAIL     → email para el login contra worldcup26.ir (opcional)
-  API_PASSWORD  → password para el login (opcional)
-                  Si no se setean, el bridge se auto-registra con una
-                  cuenta fija la primera vez y reutiliza esas mismas
-                  credenciales en los reinicios (register falla con
-                  "ya existe" → cae a login). No hace falta configurar
-                  nada para que funcione, pero podés fijarlas vos si
-                  preferís controlar la cuenta.
-
-⚠️  NOTA IMPORTANTE (leer antes de asumir que todo está calibrado):
-    Esta API no expone eventos en vivo (gol de quién, minuto exacto,
-    tarjetas amarillas/rojas, tanda de penales detallada) como sí lo
-    hacía elnine. Lo que sí da: marcador, si terminó (`finished`) y un
-    campo de texto `time_elapsed` cuyo vocabulario exacto durante un
-    partido EN VIVO no está documentado (la API está caída ahora mismo
-    y no se pudo probar contra datos reales). Ver _map_status() abajo:
-    el status/period/minute son best-effort y puede que haya que
-    ajustar el parser de `time_elapsed` una vez que se pueda ver un
-    partido en vivo real. Buscar los comentarios "TODO-VERIFICAR".
+Primary source: ESPN's public FIFA World Cup scoreboard/summary endpoints.
+Fallback source: the open wcup2026.org community API. No API key is required.
 """
 
 import json
-import os
 import re
+import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT     = int(os.environ.get("PORT", 8001))
-API_ROOT = "https://worldcup26.ir"
-
-# Cuenta con la que el bridge se autentica contra worldcup26.ir.
-# Podés overridearla con env vars; si no, usa esta fija (se auto-registra
-# la primera vez y después hace login con las mismas credenciales).
-API_EMAIL    = os.environ.get("API_EMAIL",    "overlay-mundial-bridge@bridge.local")
-API_PASSWORD = os.environ.get("API_PASSWORD", "OverlayMundial2026!Bridge")
-
-AR_TZ = timezone(timedelta(hours=-3))  # solo para los logs, no para los datos
-
-# Token JWT en memoria (se pierde si el proceso reinicia; se vuelve a
-# pedir automáticamente en el próximo request).
-_auth = {"token": None}
+PORT = int(os.environ.get("PORT", 8001))
+ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world"
+WCUP = "https://wcup2026.org/api/data.php"
+AR_TZ = timezone(timedelta(hours=-3))
+CACHE_SECONDS = 4
+_cache = {}
 
 
-def log(msg):
-    print(f"[{datetime.now(AR_TZ).strftime('%H:%M:%S')}] {msg}", flush=True)
+class SourceError(RuntimeError):
+    pass
 
 
-def _http_json(method, path, body=None, auth=True, retry_auth=True):
-    """Request genérico contra worldcup26.ir. Devuelve (status, dict|None)."""
-    url = f"{API_ROOT}{path}"
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers = {
-        "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept":       "application/json",
-        "Content-Type": "application/json",
-    }
-    if auth and _auth["token"]:
-        headers["Authorization"] = f"Bearer {_auth['token']}"
+def log(message):
+    print(f"[{datetime.now(AR_TZ).strftime('%H:%M:%S')}] {message}", flush=True)
 
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
+def get_json(url, cache_key=None):
+    now = time.time()
+    cached = _cache.get(cache_key) if cache_key else None
+    if cached and now - cached[0] < CACHE_SECONDS:
+        return cached[1]
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/json", "User-Agent": "Mozilla/5.0 overlay-mundial/4.0"
+    })
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw)
-            except json.JSONDecodeError:
-                return resp.status, None
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            parsed = None
-        # Si nos dice no-autorizado y todavía no reintentamos, renovar token
-        if e.code in (401, 403) and auth and retry_auth:
-            log(f"  ⚠️ {path} → {e.code}, reintentando login...")
-            if _ensure_auth(force=True):
-                return _http_json(method, path, body=body, auth=auth, retry_auth=False)
-        return e.code, parsed
-    except urllib.error.URLError as e:
-        return 0, {"error": f"URLError: {e.reason}"}
-    except Exception as e:
-        return 0, {"error": f"{type(e).__name__}: {e}"}
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+        if cached:
+            return cached[1]
+        raise SourceError(str(exc)) from exc
+    if cache_key:
+        _cache[cache_key] = (now, payload)
+    return payload
 
 
-def _ensure_auth(force=False):
-    """Garantiza que _auth['token'] tenga un JWT válido. True si lo logró."""
-    if _auth["token"] and not force:
-        return True
-
-    # 1) Intentar login directo (cuenta ya existente)
-    status, data = _http_json("POST", "/auth/authenticate",
-                               {"email": API_EMAIL, "password": API_PASSWORD}, auth=False)
-    if status == 200 and data and data.get("token"):
-        _auth["token"] = data["token"]
-        log("✅ Login OK contra worldcup26.ir")
-        return True
-
-    # 2) No existe la cuenta → registrarla
-    status, data = _http_json("POST", "/auth/register",
-                               {"name": "Overlay Mundial Bridge",
-                                "email": API_EMAIL, "password": API_PASSWORD}, auth=False)
-    if status == 200 and data and data.get("token"):
-        _auth["token"] = data["token"]
-        log("✅ Cuenta registrada y logueada en worldcup26.ir")
-        return True
-
-    log(f"❌ No se pudo autenticar contra worldcup26.ir (login={status}, registro={status})")
-    return False
+def parse_clock(display):
+    numbers = [int(n) for n in re.findall(r"\d+", display or "")]
+    return (numbers[0] if numbers else None, numbers[1] if len(numbers) > 1 else None)
 
 
-# ── Mapeo del schema de worldcup26.ir → schema que espera el overlay ──
-
-def _map_status(g):
-    """
-    Devuelve (status, period, minute) a partir de un partido de worldcup26.ir.
-
-    finished=True         → 'finished'
-    no empezó todavía     → 'notstarted'
-    ya pasó la hora       → 'live' (+ best-effort de period/minute vía
-                             time_elapsed) — TODO-VERIFICAR contra datos
-                             reales una vez que la API esté arriba.
-    """
-    finished = str(g.get("finished", "")).strip().upper() == "TRUE"
-    if finished:
-        return "finished", None, None
-
-    start_dt = _parse_local_date(g.get("local_date"))
-    now = datetime.now(timezone.utc)
-    te = str(g.get("time_elapsed") or "").strip().lower()
-
-    if "postpon" in te or "suspend" in te or "cancel" in te:
-        return "postponed", None, None
-
-    if start_dt is None or start_dt > now:
-        return "notstarted", None, None
-
-    # A partir de acá, el partido ya "debería" haber arrancado.
-    if te in ("", "notstarted", "not_started", "not-started", "ns"):
-        # La hora ya pasó pero el campo dice que no arrancó: puede ser
-        # demora real o que el campo simplemente no se actualiza online.
-        # Lo mostramos como 'live' sin minuto (el overlay ya sabe mostrar
-        # "EN VIVO" cuando minute es None).
-        return "live", None, None
-
-    if te in ("ht", "halftime", "half time", "half-time", "descanso"):
-        return "live", "HT", None
-
-    # TODO-VERIFICAR: vocabulario real de time_elapsed durante el partido.
-    # Intento parsear un número al inicio como minuto (ej. "34", "34'", "34+2").
-    m = re.match(r"^(\d+)(?:\+(\d+))?", te)
-    if m:
-        return "live", None, int(m.group(1))
-
-    return "live", None, None
+def espn_status(event):
+    status = event.get("status") or {}
+    kind = (status.get("type") or {}).get("state", "pre")
+    name = (status.get("type") or {}).get("name", "").upper()
+    if kind == "post":
+        return "finished"
+    if name in {"STATUS_POSTPONED", "STATUS_CANCELED", "STATUS_SUSPENDED"}:
+        return "postponed"
+    if kind == "in":
+        return "live"
+    return "scheduled"
 
 
-def _parse_local_date(s):
-    """
-    'local_date' viene como 'MM/DD/YYYY HH:mm'. TODO-VERIFICAR en qué zona
-    horaria está expresado — se asume UTC hasta poder confirmarlo contra
-    datos reales (la API está caída ahora mismo).
-    """
-    if not s:
-        return None
-    try:
-        dt = datetime.strptime(s, "%m/%d/%Y %H:%M")
-        return dt.replace(tzinfo=timezone.utc)
-    except Exception:
-        return None
+def espn_period(event):
+    status = event.get("status") or {}
+    name = (status.get("type") or {}).get("name", "").upper()
+    period = status.get("period") or 0
+    if "HALFTIME" in name:
+        return "EHT" if period >= 4 else "HT"
+    if "PEN" in name or "SHOOTOUT" in name:
+        return "PEN"
+    if period == 1:
+        return "1H"
+    if period == 2:
+        return "2H"
+    if period >= 3:
+        return "ET"
+    return "NS"
 
 
-def _map_game(g):
-    """Convierte un 'game' de worldcup26.ir al shape que usa el overlay."""
-    status, period, minute = _map_status(g)
-    start_dt = _parse_local_date(g.get("local_date"))
-
-    home_id   = str(g.get("home_team_id", "0"))
-    away_id   = str(g.get("away_team_id", "0"))
-    home_name = g.get("home_team_name_en") or g.get("home_team_label") or "TBD"
-    away_name = g.get("away_team_name_en") or g.get("away_team_label") or "TBD"
-
-    def _score(v):
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return 0
-
+def espn_match(event):
+    competition = (event.get("competitions") or [{}])[0]
+    competitors = competition.get("competitors") or []
+    home = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0] if competitors else {})
+    away = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1] if len(competitors) > 1 else {})
+    minute, added = parse_clock((event.get("status") or {}).get("displayClock"))
     return {
-        "id":         str(g.get("id")),
-        "tournamentCalendarSlug": "fifa-world-cup-2026",
-        "homeTeam":   {"id": home_id, "name": home_name},
-        "awayTeam":   {"id": away_id, "name": away_name},
-        "homeScore":  _score(g.get("home_score")),
-        "awayScore":  _score(g.get("away_score")),
-        "status":     status,
-        "period":     period,
-        "minute":     minute,
-        "addedMinute": None,
-        "startTime":  start_dt.isoformat() if start_dt else None,
-        # Sin feed de eventos individuales en esta fuente:
-        "_events":    [],
-        "_penaltyShootout": None,
-        "_raw_group":    g.get("group"),
-        "_raw_matchday": g.get("matchday"),
-        "_raw_type":     g.get("type"),
+        "id": str(event.get("id")), "tournamentCalendarSlug": "fifa-world-cup-2026",
+        "startTime": event.get("date"), "status": espn_status(event), "period": espn_period(event),
+        "minute": minute, "addedMinute": added,
+        "homeScore": int(home.get("score") or 0), "awayScore": int(away.get("score") or 0),
+        "homeTeam": {"id": str((home.get("team") or {}).get("id", "")),
+                     "name": (home.get("team") or {}).get("displayName") or "TBD"},
+        "awayTeam": {"id": str((away.get("team") or {}).get("id", "")),
+                     "name": (away.get("team") or {}).get("displayName") or "TBD"},
     }
 
 
-def _fetch_games():
-    """Pide todos los partidos. Devuelve (matches_mapeados, error_str|None)."""
-    if not _ensure_auth():
-        return [], "auth_failed"
-    status, data = _http_json("GET", "/get/games")
-    if status != 200 or not data:
-        return [], f"HTTP {status}: {data}"
-    games = data.get("games", data if isinstance(data, list) else [])
-    try:
-        return [_map_game(g) for g in games], None
-    except Exception as e:
-        return [], f"MapError: {type(e).__name__}: {e}"
+def event_kind(item):
+    kind = ((item.get("type") or {}).get("type") or "").lower()
+    text = ((item.get("type") or {}).get("text") or "").lower()
+    if item.get("scoringPlay") or "goal" in kind:
+        return "goal-own" if item.get("ownGoal") else "goal"
+    if "yellow" in kind or "yellow" in text:
+        return "yellow"
+    if "red" in kind or "red" in text:
+        return "red"
+    return None
 
 
-def _fetch_game(match_id):
-    if not _ensure_auth():
-        return None, "auth_failed"
-    status, data = _http_json("GET", f"/get/game/{match_id}")
-    if status != 200 or not data:
-        return None, f"HTTP {status}: {data}"
-    g = data.get("game", data)
+def normalize_events(items, home_id):
+    result, shots = [], []
+    for item in items or []:
+        team_id = str((item.get("team") or {}).get("id", ""))
+        side = "home" if team_id == str(home_id) else "away"
+        participants = item.get("participants") or []
+        names = [(p.get("athlete") or {}).get("displayName", "") for p in participants]
+        minute, added = parse_clock((item.get("clock") or {}).get("displayValue"))
+        if item.get("shootout"):
+            type_text = ((item.get("type") or {}).get("text") or "").lower()
+            outcome = "missed" if "miss" in type_text or "saved" in type_text else "goal"
+            shots.append({"team": side, "outcome": outcome, "playerName": names[0] if names else ""})
+            continue
+        kind = event_kind(item)
+        if kind:
+            result.append({
+                "id": item.get("id"), "minute": minute, "addedMinute": added,
+                "type": kind, "team": side, "playerName": names[0] if names else "",
+                "playerNameFull": names[0] if names else "", "assist": names[1] if len(names) > 1 else "",
+                "assistFull": names[1] if len(names) > 1 else "",
+            })
+    return result, shots
+
+
+def espn_detail(fixture_id):
+    url = f"{ESPN}/summary?event={urllib.parse.quote(fixture_id)}"
+    data = get_json(url, f"espn-detail-{fixture_id}")
+    header = data.get("header") or {}
+    event = {"id": header.get("id", fixture_id), "date": header.get("season", {}).get("date")}
+    event["competitions"] = header.get("competitions") or []
+    competition = event["competitions"][0] if event["competitions"] else {}
+    event["status"] = competition.get("status") or header.get("status") or {}
+    match = espn_match(event)
+    home_id = match["homeTeam"]["id"]
+    normalized, shots = normalize_events(data.get("keyEvents") or competition.get("details"), home_id)
+    match["events"] = normalized
+    match["homeTeam"]["score"], match["awayTeam"]["score"] = match["homeScore"], match["awayScore"]
+    if shots:
+        match["penaltyShootout"] = {"shots": shots}
+    return match
+
+
+def wcup_match(item, detailed=False):
+    score = item.get("score") or [0, 0]
+    match = {
+        "id": str(item.get("id")), "tournamentCalendarSlug": "fifa-world-cup-2026",
+        "startTime": datetime.fromtimestamp(item.get("datetime", 0), timezone.utc).isoformat(),
+        "status": item.get("status", "scheduled"), "period": "NS",
+        "minute": item.get("live_minute"), "addedMinute": None,
+        "homeScore": score[0] or 0, "awayScore": score[1] or 0,
+        "homeTeam": {"id": "wc-home", "name": item.get("team1") or "TBD"},
+        "awayTeam": {"id": "wc-away", "name": item.get("team2") or "TBD"},
+    }
+    if detailed:
+        events = []
+        for side, goals in (("home", item.get("goals1") or []), ("away", item.get("goals2") or [])):
+            for goal in goals:
+                minute, added = parse_clock(str(goal.get("minute", "")))
+                events.append({"type": "goal", "team": side, "minute": minute, "addedMinute": added,
+                               "playerName": goal.get("name", ""), "playerNameFull": goal.get("name", "")})
+        for card in item.get("cards") or []:
+            events.append({"type": "red" if "red" in card.get("type", "").lower() else "yellow",
+                           "team": "home" if card.get("team") == 1 else "away", "minute": card.get("minute"),
+                           "playerName": card.get("name", ""), "playerNameFull": card.get("name", "")})
+        match["events"] = events
+        match["homeTeam"]["score"], match["awayTeam"]["score"] = match["homeScore"], match["awayScore"]
+        if item.get("penalties"):
+            match["penaltyShootout"] = {"shots": []}
+    return match
+
+
+def all_matches():
+    now = datetime.now(AR_TZ)
+    dates = f"{(now-timedelta(days=1)):%Y%m%d}-{(now+timedelta(days=8)):%Y%m%d}"
     try:
-        return _map_game(g), None
-    except Exception as e:
-        return None, f"MapError: {type(e).__name__}: {e}"
+        data = get_json(f"{ESPN}/scoreboard?dates={dates}&limit=100", "espn-schedule")
+        matches = [espn_match(event) for event in data.get("events") or []]
+        if matches:
+            return matches, "espn"
+    except SourceError as exc:
+        log(f"ESPN failed: {exc}")
+    data = get_json(f"{WCUP}?action=all", "wcup-all")
+    return [wcup_match(item) for item in data.get("matches") or []], "wcup2026.org"
 
 
 class Handler(BaseHTTPRequestHandler):
-
     def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+        self.send_response(204); self.cors(); self.end_headers()
 
     def do_GET(self):
-        path = urllib.parse.urlparse(self.path).path
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        try:
+            if path == "/match":
+                matches, provider = all_matches()
+                self.send_json({"items": [{"tournamentCalendarSlug": "fifa-world-cup-2026", "matches": matches}],
+                                "_debug": {"provider": provider, "count": len(matches)}})
+            elif re.fullmatch(r"/detail/\d+", path):
+                fixture_id = path.rsplit("/", 1)[-1]
+                if int(fixture_id) < 1000:
+                    raw = get_json(f"{WCUP}?action=match&id={fixture_id}", f"wcup-detail-{fixture_id}")
+                    self.send_json({"matchDetail": wcup_match(raw["match"], True)})
+                else:
+                    self.send_json({"matchDetail": espn_detail(fixture_id)})
+            elif path in ("/", "/health"):
+                matches, provider = all_matches()
+                self.send_json({"status": "ok", "provider": provider, "free": True,
+                                "count": len(matches), "tokenRequired": False,
+                                "endpoints": ["/match", "/detail/:id"]})
+            else:
+                self.send_json({"error": "Not found"}, 404)
+        except Exception as exc:
+            log(f"Request failed: {exc}"); self.send_json({"error": str(exc)}, 502)
 
-        if path == "/match":
-            self._handle_matches()
-        elif re.match(r"^/detail/[A-Za-z0-9_-]+$", path):
-            self._handle_detail(path.split("/")[-1])
-        elif re.match(r"^/stats/[A-Za-z0-9_-]+$", path):
-            # worldcup26.ir no tiene endpoint de stats/eventos por partido.
-            self._send_json({"stats": None, "note": "no disponible en worldcup26.ir"})
-        elif path == "/debug":
-            self._handle_debug()
-        elif path in ("/", "/health"):
-            self._send_json({
-                "status": "ok",
-                "source": "worldcup26.ir",
-                "server_time_utc": datetime.now(timezone.utc).isoformat(),
-                "authenticated": bool(_auth["token"]),
-                "endpoints": ["/match", "/detail/:id", "/debug"],
-            })
-        else:
-            self.send_response(404)
-            self._cors()
-            self.end_headers()
-
-    def _handle_matches(self):
-        log("GET /match — consultando worldcup26.ir...")
-        matches, err = _fetch_games()
-        if err:
-            log(f"  ⚠️ error: {err}")
-            self.send_response(502)
-            self._cors()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": err}).encode())
-            return
-
-        wc = [m for m in matches if "world-cup" in m["tournamentCalendarSlug"]]
-        log(f"  → {len(matches)} partidos ({len(wc)} del Mundial)")
-        body = json.dumps({
-            "items": [{"tournamentCalendarSlug": "fifa-world-cup-2026", "matches": matches}],
-            "_debug": {"total": len(matches), "server_time_utc": datetime.now(timezone.utc).isoformat()},
-        }).encode("utf-8")
-        self.send_response(200)
-        self._cors()
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _handle_detail(self, match_id):
-        log(f"GET /detail/{match_id}")
-        match, err = _fetch_game(match_id)
-        if err or match is None:
-            self.send_response(502)
-            self._cors()
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": err or "not_found"}).encode())
-            return
-        self._send_json(match)
-
-    def _handle_debug(self):
-        matches, err = _fetch_games()
-        self._send_json({
-            "server_time_utc": datetime.now(timezone.utc).isoformat(),
-            "authenticated": bool(_auth["token"]),
-            "error": err,
-            "count": len(matches),
-            "sample": matches[:3],
-        })
-
-    def _cors(self):
-        self.send_header("Access-Control-Allow-Origin",  "*")
+    def cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
-    def _send_json(self, obj):
-        body = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
-        self.send_response(200)
-        self._cors()
+    def send_json(self, value, status=200):
+        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        self.send_response(status); self.cors()
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.end_headers(); self.wfile.write(body)
 
-    def log_message(self, fmt, *args):
-        pass  # silenciamos el log HTTP default
+    def log_message(self, *_args):
+        pass
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
-    log(f"✅ Bridge (worldcup26.ir) corriendo en puerto {PORT}")
-    _ensure_auth()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        log("Detenido.")
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    log(f"Free bridge running on port {PORT} (ESPN + wcup2026.org fallback)")
+    server.serve_forever()

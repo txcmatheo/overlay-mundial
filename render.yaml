@@ -6,4 +6,4 @@ services:
     startCommand: python bridge.py
     envVars:
       - key: PORT
-        generateValue: false   # Render lo inyecta automáticamente
+        generateValue: false
