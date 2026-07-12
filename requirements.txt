@@ -1,1 +1,1 @@
-# No external dependencies — stdlib only
+curl_cffi
