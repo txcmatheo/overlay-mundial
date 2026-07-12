@@ -3,24 +3,38 @@ Bridge CORS-proxy para el overlay del Mundial.
 Diseñado para correr en Render (o cualquier host con Python).
 
 Variables de entorno:
-  PORT  → Render la setea automáticamente (default 8001 local)
+  PORT              → Render la setea automáticamente (default 8001 local)
+  SCRAPE_DO_TOKEN    → tu token de scrape.do (dashboard.scrape.do)
 """
 
 import json
 import os
 import re
-import sys
+import time
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from curl_cffi import requests as curl_requests
+import requests
 
-PORT     = int(os.environ.get("PORT", 8001))
-API_ROOT = "https://api.elnine.com.ar"
+PORT             = int(os.environ.get("PORT", 8001))
+API_ROOT         = "https://api.elnine.com.ar"
+SCRAPE_DO_TOKEN  = os.environ.get("SCRAPE_DO_TOKEN", "")
+SCRAPE_DO_ROOT   = "https://api.scrape.do/"
 
 # Zona horaria Argentina (UTC-3) — elnine indexa por hora local argentina
 AR_TZ = timezone(timedelta(hours=-3))
+
+# Caché simple en memoria: date_str -> (timestamp_epoch, matches, error)
+# elnine.com.ar está protegido por Cloudflare Bot Management y bloquea
+# cualquier request que no venga de un navegador real / IP residencial.
+# scrape.do resuelve eso rotando por proxies residenciales, pero cada
+# request consume créditos del plan (limitado en el free tier). El overlay
+# hace polling cada pocos segundos, así que sin caché se agotan los
+# créditos en minutos. CACHE_TTL_SECONDS controla cuánto se reusa una
+# respuesta antes de volver a pagar un request nuevo a scrape.do.
+CACHE_TTL_SECONDS = 30
+_cache = {}
 
 
 def log(msg):
@@ -28,56 +42,57 @@ def log(msg):
 
 
 def _proxy_get(url):
-    # elnine (o el WAF/Cloudflare que la protege) bloquea por fingerprint
-    # TLS/HTTP, no solo por headers: urllib/requests estándar de Python
-    # tienen un handshake fácilmente detectable como "no navegador",
-    # sin importar qué User-Agent le pongamos. curl_cffi con
-    # impersonate="chrome124" replica el handshake real de Chrome y
-    # esquiva ese tipo de bloqueo.
-    resp = curl_requests.get(
-        url,
-        impersonate="chrome124",
-        headers={
-            "Accept":          "application/json, text/plain, */*",
-            "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
-            "Cache-Control":   "no-cache",
-            "Pragma":          "no-cache",
-            "Referer":         "https://elnine.com.ar/",
-        },
-        timeout=15,
+    if not SCRAPE_DO_TOKEN:
+        raise RuntimeError("Falta la variable de entorno SCRAPE_DO_TOKEN")
+
+    encoded_target = urllib.parse.quote(url, safe="")
+    scrape_url = (
+        f"{SCRAPE_DO_ROOT}?token={SCRAPE_DO_TOKEN}"
+        f"&url={encoded_target}"
+        f"&super=true"   # proxy residencial — necesario para pasar el bot-check de elnine
     )
+    resp = requests.get(scrape_url, timeout=30)
     return resp.status_code, resp.content, dict(resp.headers)
 
 
-def _fetch_schedule(date_str):
-    """Pide el schedule de una fecha a elnine. Devuelve (matches, error_str)."""
-    url = f"{API_ROOT}/schedule?date={date_str}&_t={int(datetime.now().timestamp())}"
+def _fetch_schedule(date_str, use_cache=True):
+    """Pide el schedule de una fecha a elnine (con caché). Devuelve (matches, error_str)."""
+    now = time.time()
+
+    if use_cache and date_str in _cache:
+        ts, cached_matches, cached_err = _cache[date_str]
+        if now - ts < CACHE_TTL_SECONDS:
+            return cached_matches, cached_err
+
+    url = f"{API_ROOT}/schedule?date={date_str}&_t={int(now)}"
+    matches, err = [], None
     try:
         status, raw, headers = _proxy_get(url)
         if status != 200:
-            return [], f"HTTP {status}"
-        content_type = headers.get("Content-Type", "")
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            # No es JSON -> casi seguro una página de bloqueo/challenge.
-            snippet = raw[:200].decode("utf-8", errors="replace")
-            log(f"  ⚠️ {date_str}: respuesta no-JSON (Content-Type={content_type}) → {snippet!r}")
-            return [], f"NonJSON: content-type={content_type} body={snippet!r}"
-        if "matches" not in data:
-            # JSON válido pero sin la forma esperada: podría ser un bloqueo
-            # disfrazado de JSON ({"error":...}, {"message":"blocked"}, etc.)
-            # o un cambio de schema en la API. Antes esto se devolvía como
-            # matches=[] SIN error, y el overlay lo tomaba como "0 partidos
-            # legítimos" en vez de como una falla real.
-            snippet = json.dumps(data)[:200]
-            log(f"  ⚠️ {date_str}: JSON sin clave 'matches' → {snippet}")
-            return [], f"UnexpectedSchema: keys={list(data.keys())} body={snippet}"
-        return data["matches"], None
-    except curl_requests.errors.RequestsError as e:
-        return [], f"RequestsError: {e}"
+            err = f"HTTP {status}"
+        else:
+            content_type = headers.get("Content-Type", "")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                snippet = raw[:200].decode("utf-8", errors="replace")
+                log(f"  ⚠️ {date_str}: respuesta no-JSON (Content-Type={content_type}) → {snippet!r}")
+                err = f"NonJSON: content-type={content_type} body={snippet!r}"
+            else:
+                if "matches" not in data:
+                    snippet = json.dumps(data)[:200]
+                    log(f"  ⚠️ {date_str}: JSON sin clave 'matches' → {snippet}")
+                    err = f"UnexpectedSchema: keys={list(data.keys())} body={snippet}"
+                else:
+                    matches = data["matches"]
     except Exception as e:
-        return [], f"Error: {type(e).__name__}: {e}"
+        err = f"Error: {type(e).__name__}: {e}"
+
+    # Solo cachear resultados OK, o errores, igual — así una racha de
+    # polling no re-pega contra scrape.do mientras el TTL esté vigente,
+    # sin importar si la última respuesta fue éxito o fallo.
+    _cache[date_str] = (now, matches, err)
+    return matches, err
 
 
 def _build_matches_response():
@@ -95,13 +110,14 @@ def _build_matches_response():
     dates = [(now_ar - timedelta(days=1)).strftime("%Y-%m-%d"), now_ar.strftime("%Y-%m-%d")]
     dates += [(now_ar + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, DAYS_AHEAD + 1)]
 
-    seen       = set()
+    seen        = set()
     all_matches = []
     debug_info  = {
         "server_time_utc": datetime.now(timezone.utc).isoformat(),
         "server_time_ar":  now_ar.isoformat(),
         "dates_queried":   dates,
         "per_date":        {},
+        "cache_ttl_seconds": CACHE_TTL_SECONDS,
     }
 
     error_count = 0
@@ -168,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "server_time_utc": datetime.now(timezone.utc).isoformat(),
                 "server_time_ar":  datetime.now(AR_TZ).isoformat(),
+                "scrape_do_configured": bool(SCRAPE_DO_TOKEN),
+                "cache_entries": len(_cache),
                 "endpoints": ["/match", "/schedule?date=YYYY-MM-DD", "/detail/:id", "/debug"],
             })
         else:
@@ -176,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _handle_debug(self):
-        """Devuelve info detallada de qué ve elnine para cada fecha."""
+        """Devuelve info detallada de qué ve elnine para cada fecha (bypassea el caché)."""
         log("GET /debug")
         DAYS_AHEAD = 8
         now_ar = datetime.now(AR_TZ)
@@ -188,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             "dates": {},
         }
         for d in dates:
-            matches, err = _fetch_schedule(d)
+            matches, err = _fetch_schedule(d, use_cache=False)
             wc_matches = [m for m in matches if "world-cup" in m.get("tournamentCalendarSlug", "").lower()]
             result["dates"][d] = {
                 "error":      err,
@@ -213,8 +231,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(result)
 
     def _handle_schedule(self, qs):
-        """Proxy directo a /schedule de elnine."""
-        url = f"{API_ROOT}/schedule?{qs}&_t={int(datetime.now().timestamp())}"
+        """Proxy directo a /schedule de elnine (sin caché, uso puntual)."""
+        url = f"{API_ROOT}/schedule?{qs}&_t={int(time.time())}"
         log(f"GET /schedule → {url}")
         try:
             status, data, _ = _proxy_get(url)
@@ -228,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
             self._error(str(e))
 
     def _handle_matches(self):
-        log("GET /match — consultando elnine...")
+        log("GET /match — consultando elnine (vía scrape.do, con caché)...")
         try:
             data, all_failed = _build_matches_response()
             # 502 en vez de 200 cuando TODAS las fechas fallaron: así el
@@ -245,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
             self._error(str(e))
 
     def _handle_detail(self, match_id):
-        url = f"{API_ROOT}/match/{match_id}?_t={int(datetime.now().timestamp())}"
+        url = f"{API_ROOT}/match/{match_id}?_t={int(time.time())}"
         log(f"GET /detail/{match_id}")
         try:
             status, data, _ = _proxy_get(url)
@@ -259,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
             self._error(str(e))
 
     def _handle_stats(self, match_id):
-        url = f"{API_ROOT}/match/{match_id}/stats?_t={int(datetime.now().timestamp())}"
+        url = f"{API_ROOT}/match/{match_id}/stats?_t={int(time.time())}"
         log(f"GET /stats/{match_id}")
         try:
             status, data, _ = _proxy_get(url)
@@ -300,8 +318,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not SCRAPE_DO_TOKEN:
+        log("⚠️  SCRAPE_DO_TOKEN no está seteado — todas las requests van a fallar")
     server = HTTPServer(("0.0.0.0", PORT), Handler)
-    log(f"✅ Bridge v2 corriendo en puerto {PORT}")
+    log(f"✅ Bridge v3 (scrape.do) corriendo en puerto {PORT}")
     log(f"   Hora actual AR: {datetime.now(AR_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
     log(f"   Hora actual UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
     try:
