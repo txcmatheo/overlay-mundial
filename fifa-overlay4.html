@@ -364,6 +364,8 @@
     //  OBS:     agregar como "Browser Source"
     // ══════════════════════════════════════════════════════════════
     // ▼▼▼ Cambiá esta URL por la de tu bridge en Render ▼▼▼
+    // Fuente de datos del bridge: worldcup26.ir (rezarahiminia/worldcup2026).
+    // elnine.com.ar YA NO SE USA (quedó bloqueado por anti-bot).
     const BRIDGE_URL = 'https://overlay-mundial.matheogonpy.workers.dev'; // Cloudflare Worker (Render bloqueado con 403 por IP)
     // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
@@ -794,7 +796,7 @@
     // ── ESTADO ───────────────────────────────────────────────────
     const firedMap = {};
     function getFired(id) {
-        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, eht:false, ft:false, penWinner:false };
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, eht:false, ft:false, penWinner:false, lastHomeScore:-1, lastAwayScore:-1 };
         return firedMap[id];
     }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
@@ -991,6 +993,32 @@
                     sfx:SFX.redCard, flash:'flash-card'});
             }
         });
+
+        // ── Fallback: detección de gol por cambio de marcador ──
+        // worldcup26.ir no entrega eventos individuales (m._events siempre
+        // viene vacío), así que si no hay eventos detallados, generamos un
+        // aviso de gol genérico (sin nombre de jugador) comparando el
+        // marcador contra el del poll anterior.
+        if(!m._events || m._events.length === 0) {
+            const hs = m.homeScore ?? 0, as = m.awayScore ?? 0;
+            if(fired.lastHomeScore === -1 && fired.lastAwayScore === -1) {
+                // Primera vez que vemos este partido: solo anclar, no disparar
+                // (si ya viene con goles de antes, no es un gol "nuevo").
+                fired.lastHomeScore = hs;
+                fired.lastAwayScore = as;
+            } else {
+                if(hs > fired.lastHomeScore) {
+                    showEvent({type:'goal', icon:'⚽', title:`¡GOL! ${hn}`,
+                        sub:`${hs} — ${as}`, sfx:SFX.goal, flash:'flash-goal'});
+                }
+                if(as > fired.lastAwayScore) {
+                    showEvent({type:'goal', icon:'⚽', title:`¡GOL! ${an}`,
+                        sub:`${hs} — ${as}`, sfx:SFX.goal, flash:'flash-goal'});
+                }
+                fired.lastHomeScore = hs;
+                fired.lastAwayScore = as;
+            }
+        }
 
         // Medio tiempo
         const per = (m.period||'').toString().trim().toUpperCase();
@@ -1213,39 +1241,7 @@
         return [arDateStr(y), arDateStr(now), arDateStr(t)];
     }
 
-    // Llama directamente a elnine (funciona desde el browser, CORS está abierto)
-    async function fetchScheduleDate(dateStr) {
-        const url = `https://api.elnine.com.ar/schedule?date=${dateStr}&_t=${Date.now()}`;
-        const r = await fetch(url, {cache:'no-store'});
-        if(!r.ok) throw new Error(`elnine HTTP ${r.status}`);
-        return (await r.json()).matches || [];
-    }
-
-    // Fetch directo a elnine para las 3 fechas en paralelo (estrategia principal)
-    async function fetchAllDirect() {
-        const dates = arDates();
-        const results = await Promise.allSettled(dates.map(d => fetchScheduleDate(d)));
-        const seen = new Set(), all = [];
-        let okCount = 0;
-        results.forEach((r, i) => {
-            if(r.status==='fulfilled') {
-                okCount++;
-                for(const m of r.value) {
-                    if(!seen.has(m.id)){ seen.add(m.id); all.push(m); }
-                }
-            } else {
-                console.warn(`⚠️ fetchScheduleDate(${dates[i]}) falló:`, r.reason);
-            }
-        });
-        // Si NINGUNA fecha pudo consultarse (CORS, red, etc.), no confiar en
-        // "all=[]" como si fuera un resultado real — forzar fallback al bridge.
-        if(okCount === 0) {
-            throw new Error('fetchAllDirect: las 3 fechas fallaron (ver warnings arriba)');
-        }
-        return all;
-    }
-
-    // Bridge como fallback (proxy CORS), parametrizado por URL base
+    // Bridge como única fuente (proxy contra worldcup26.ir), parametrizado por URL base
     async function fetchAllViaBridge(base) {
         const r = await fetch(`${base}/match?_t=${Date.now()}`, {cache:'no-store'});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1257,14 +1253,13 @@
         return all;
     }
 
-    // Intenta, en orden: bridge local → elnine directo → bridge de Render.
-    // El primero que responda sin lanzar error (incluso con 0 partidos
-    // legítimos) gana. Errores (CORS, connection refused, etc.) pasan al siguiente.
+    // Intenta, en orden: bridge local → bridge de Render. Ambos hablan con
+    // worldcup26.ir del lado del servidor. El primero que responda sin
+    // lanzar error (incluso con 0 partidos legítimos) gana.
     async function fetchAllSmart() {
         const strategies = [
             ['bridge-local',  () => fetchAllViaBridge(LOCAL_BRIDGE)],
             ['bridge-render', () => fetchAllViaBridge(BRIDGE_URL)],
-            ['elnine-directo', fetchAllDirect],
         ];
         for(const [name, fn] of strategies) {
             try {
@@ -1279,11 +1274,11 @@
         return [];
     }
 
-    // Enriquece el partido con datos en tiempo real desde elnine /match/:id
+    // Enriquece el partido con datos en tiempo real vía el bridge (worldcup26.ir
+    // no tiene un endpoint público directo con CORS abierto, así que siempre
+    // pasa por el bridge local o el de Render).
     async function enrichLiveMatch(match) {
-        // Intentar primero directo a elnine, fallback al bridge
         const urls = [
-            `https://api.elnine.com.ar/match/${match.id}?_t=${Date.now()}`,
             `${LOCAL_BRIDGE}/detail/${match.id}?_t=${Date.now()}`,
             `${BRIDGE_URL}/detail/${match.id}?_t=${Date.now()}`,
         ];
