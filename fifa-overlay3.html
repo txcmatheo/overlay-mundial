@@ -284,6 +284,73 @@
         @keyframes pen-blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .pen-cell.pop { animation: pen-pop 0.35s ease; }
         @keyframes pen-pop { 0%{transform:scale(1)} 45%{transform:scale(1.5)} 100%{transform:scale(1)} }
+
+        /* Cartel de campeón: celebración que se reproduce una sola vez
+           (confetti + destello dorado + trofeo con rebote) y luego decae
+           a un estado fijo con el mensaje, sin loops. */
+        #champion-plate {
+            position: relative; width: fit-content; margin-top: 14px;
+            opacity: 0; pointer-events: none;
+        }
+        #champion-plate.visible { opacity: 1; }
+
+        #champion-plate .champion-flash {
+            position: absolute; inset: -34px; z-index: 1; border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,215,0,0.55) 0%, rgba(255,215,0,0) 70%);
+            opacity: 0; pointer-events: none;
+        }
+        #champion-plate.visible .champion-flash {
+            animation: champion-flash-burst 1.1s ease-out forwards;
+        }
+        @keyframes champion-flash-burst { 0%{opacity:0;} 20%{opacity:1;} 100%{opacity:0;} }
+
+        #champion-plate .champion-confetti {
+            position: absolute; left: 0; right: 0; top: -22px; height: 0;
+            overflow: visible; z-index: 3; pointer-events: none;
+        }
+        .confetti-piece {
+            position: absolute; top: 0; width: 6px; height: 10px; opacity: 0;
+            border-radius: 1px;
+        }
+        #champion-plate.visible .confetti-piece {
+            animation-name: confetti-fall; animation-timing-function: ease-in;
+            animation-fill-mode: forwards; animation-iteration-count: 1;
+        }
+        @keyframes confetti-fall {
+            0%   { opacity: 1; transform: translateY(0) rotate(0deg); }
+            85%  { opacity: 1; }
+            100% { opacity: 0; transform: translateY(95px) rotate(360deg); }
+        }
+
+        #champion-plate .champion-content {
+            position: relative; z-index: 2;
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 20px;
+            background: rgba(10,10,10,0.65);
+            border: 1px solid rgba(255,215,0,0.5);
+            border-radius: 22px;
+            opacity: 0; transform: scale(0.9);
+        }
+        #champion-plate.visible .champion-content {
+            animation: champion-content-in 0.5s cubic-bezier(.34,1.56,.64,1) 0.15s forwards;
+        }
+        @keyframes champion-content-in { to { opacity: 1; transform: scale(1); } }
+
+        #champion-plate .champion-trophy {
+            font-size: 26px; display: inline-block;
+            transform: scale(0) rotate(-20deg);
+        }
+        #champion-plate.visible .champion-trophy {
+            animation: champion-trophy-pop 0.7s cubic-bezier(.34,1.56,.64,1) 0.35s forwards;
+        }
+        @keyframes champion-trophy-pop { to { transform: scale(1) rotate(0deg); } }
+
+        #champion-plate #champion-name {
+            color: #ffd700; font-weight: 900; font-size: 17px; letter-spacing: 1px;
+        }
+        #champion-plate .champion-label {
+            color: rgba(255,255,255,0.75); font-weight: 700; font-size: 13px; letter-spacing: 1.5px;
+        }
     </style>
 </head>
 <body>
@@ -352,6 +419,18 @@
                     <div class="event-sub"   id="event-sub">Jugador</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Cartel de campeón: aparece una sola vez con confetti + destello dorado
+         y trofeo con rebote, y luego se queda fijo -->
+    <div id="champion-plate">
+        <div class="champion-confetti" id="champion-confetti"></div>
+        <div class="champion-flash"></div>
+        <div class="champion-content">
+            <span class="champion-trophy">🏆</span>
+            <span id="champion-name">---</span>
+            <span class="champion-label">CAMPEÓN DEL MUNDO</span>
         </div>
     </div>
 
@@ -708,6 +787,71 @@
 
         // Animación de ganador (solo una vez por partido)
         checkPenaltyWinnerEvent(m, hn, an);
+
+        // Cartel de campeón fijo, si la tanda ya cerró el resultado
+        checkChampionFromPenalties(m, hn, an);
+    }
+
+    // ── CARTEL DE CAMPEÓN ────────────────────────────────────────
+    // Se muestra una sola vez por partido, con un fundido suave, y se
+    // queda fijo (sin animaciones en loop). Se dispara cuando el resultado
+    // queda definido, ya sea en tiempo reglamentario/prórroga o al cerrar
+    // la tanda de penales.
+    // Genera las piezas de confetti (una sola vez, sin loop) con posición,
+    // color y tiempos aleatorios para que la caída no se vea repetitiva.
+    function spawnConfetti() {
+        const layer = $('champion-confetti');
+        layer.innerHTML = '';
+        const colors = ['#ffd700', '#00ffc8', '#ff6b6b', '#8a6bff', '#ffffff'];
+        const n = 22;
+        for (let i = 0; i < n; i++) {
+            const p = document.createElement('span');
+            p.className = 'confetti-piece';
+            p.style.left = (Math.random() * 100) + '%';
+            p.style.background = colors[Math.floor(Math.random() * colors.length)];
+            p.style.animationDelay = (Math.random() * 0.3) + 's';
+            p.style.animationDuration = (1.1 + Math.random() * 0.6) + 's';
+            p.style.transform = `rotate(${Math.floor(Math.random() * 360)}deg)`;
+            layer.appendChild(p);
+        }
+    }
+
+    function showChampion(name) {
+        const plate = $('champion-plate');
+        if (plate.classList.contains('visible')) return;
+        $('champion-name').textContent = name;
+        spawnConfetti();
+        plate.classList.add('visible');
+
+        // El cartel de campeón pasa a ser lo único visible en el slot
+        // debajo del marcador: se oculta la tanda de penales (y cualquier
+        // evento en curso) para que no queden superpuestos.
+        if (evTimer) clearTimeout(evTimer);
+        $('event-panel').classList.remove('visible');
+        $('penalty-wrap').classList.remove('visible');
+    }
+
+    // Caso: el partido termina definido por marcador (sin ir a penales)
+    function checkChampionFromScore(m, hn, an) {
+        const fired = getFired(m.id);
+        if (fired.championShown) return;
+        if (m.status !== 'finished' || penaltyState.active) return;
+        const hs = m.homeScore ?? 0, as = m.awayScore ?? 0;
+        if (hs === as) return; // empate sin definir todavía
+        fired.championShown = true;
+        showChampion(hs > as ? hn : an);
+    }
+
+    // Caso: el partido se define por tanda de penales
+    function checkChampionFromPenalties(m, hn, an) {
+        const fired = getFired(m.id);
+        if (fired.championShown) return;
+        if (!penaltyState._finished) return;
+        const winnerIso = penCheckWinner();
+        if (!winnerIso) return;
+        fired.championShown = true;
+        const isHome = winnerIso === penaltyState.home.iso;
+        showChampion(isHome ? hn : an);
     }
 
     // Dispara la animación "ha pasado a la siguiente ronda" una sola vez
@@ -794,7 +938,7 @@
     // ── ESTADO ───────────────────────────────────────────────────
     const firedMap = {};
     function getFired(id) {
-        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, eht:false, ft:false, penWinner:false };
+        if(!firedMap[id]) firedMap[id] = { goalKeys:new Set(), yH:0,yA:0, rH:0,rA:0, ht:false, eht:false, ft:false, penWinner:false, championShown:false };
         return firedMap[id];
     }
     let state = { homeName:'---',awayName:'---',homeId:'',awayId:'', ready:false };
@@ -971,6 +1115,9 @@
                 sub:`${hn} ${m.homeScore??0} — ${m.awayScore??0} ${an}`,
                 sfx:SFX.fullTime, flash:'flash-ft'});
         }
+
+        // Cartel de campeón fijo, si el resultado quedó definido sin penales
+        checkChampionFromScore(m, hn, an);
     }
 
     // ── AUTO-SCALE ───────────────────────────────────────────────
